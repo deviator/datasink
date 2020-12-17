@@ -1,0 +1,4 @@
+name "datasink"
+
+dependency "mir-core" version="~>1.1.54"
+versions "use_mir_algebraic"
