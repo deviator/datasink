@@ -153,7 +153,7 @@ interface RootDataSink : FieldSink
                     putData(v);
                 }
             }
-            else static if (isAlgebraicType!T)
+            else static if (isTaggedVariant!T)
             {
                 putData(val.kind);
                 val.visit!(v => putData(v));

@@ -3,45 +3,12 @@ module datasink.typedesc;
 import datasink.value;
 import std.typecons : Tuple;
 
-version (use_taggedalgebraic)
-{
-    private union ValueDscBase
-    {
-        typeof(null) unkn;
-        Value.Kind   base;
-        string       comp; /// name of complex (scope) type
-    }
-
-    alias ValueDsc = TaggedAlgebraic!ValueDscBase;
-}
-else
-version (use_sumtype)
-{
-    alias ValueDsc = SumType!(
-        typeof(null),
-        size_t, // type index
-        string,
-    );
-}
-else
-version (use_mir_algebraic)
-{
-    alias ValueDsc = TaggedVariant!(
-        ["unkn", "base", "comp"],
-        typeof(null),
-        Value.Kind,
-        string
-    );
-}
-else
-version (use_tagged_union)
-{
-    alias ValueDsc = TaggedUnion!(
-        typeof(null),
-        size_t,
-        string
-    );
-}
+alias ValueDsc = TaggedVariant!(
+    ["unkn", "base", "comp"],
+    typeof(null),
+    Value.Kind,
+    string
+);
 
 /+
     Для типов, чьё описание до конца не извесно использовать `unkn`, а
@@ -69,7 +36,7 @@ struct EnumDsc
 {
     string      name; // name of enum
 
-    TypeOfKind!Value basetype;
+    Value.Kind basetype;
 
     struct MemberDsc
     {
@@ -102,64 +69,10 @@ struct TUnionDsc
     TupleDsc    dsc;
 }
 
-version (use_taggedalgebraic)
-{
-    private union TypeDscBase
-    {
-        ObjectDsc       object;
-        TupleDsc        tuple;
-        DArrayDsc       dArray;
-        SArrayDsc       sArray;
-        AArrayDsc       aArray;
-        TUnionDsc       tUnion;
-        EnumDsc         enumEl;
-    }
-
-    alias TypeDsc = TaggedUnion!TypeDscBase;
-}
-
-version (use_sumtype)
-{
-    alias TypeDsc = SumType!(
-        ObjectDsc,
-        TupleDsc,
-        DArrayDsc,
-        SArrayDsc,
-        AArrayDsc,
-        TUnionDsc,
-        EnumDsc,
-    );
-}
-
-version (use_mir_algebraic)
-{
-    alias TypeDsc = TaggedVariant!(
-        ["object", "tuple",  "dArray",
-         "sArray", "aArray", "tUnion",
-         "enumEl"],
-
-        ObjectDsc,
-        TupleDsc,
-        DArrayDsc,
-        SArrayDsc,
-        AArrayDsc,
-        TUnionDsc,
-        EnumDsc,
-    );
-}
-
-version (use_tagged_union)
-{
-    alias TypeDsc = TaggedUnion!(
-        ObjectDsc,
-        TupleDsc,
-        DArrayDsc,
-        SArrayDsc,
-        AArrayDsc,
-        TUnionDsc,
-        EnumDsc,
-    );
-}
+alias TypeDsc = TaggedVariant!(
+    ["object", "tuple",  "dArray", "sArray",  "aArray",  "tUnion",  "enumEl"],
+    ObjectDsc, TupleDsc, DArrayDsc, SArrayDsc, AArrayDsc, TUnionDsc, EnumDsc,
+);
 
 template makeTypeDsc(T)
 {
@@ -174,9 +87,13 @@ template makeTypeDsc(T)
 
     ValueDsc valueDsc(X)()
     {
+        //static if (is(typeof(Value(X.init))))
+        //    return ValueDsc(Value(X.init).kind);
+        //else
+        //    return ValueDsc(nameOf!X);
         enum ind = getKindIndex!(X, Value);
         static if (ind < 0) return ValueDsc(nameOf!X);
-        else return ValueDsc(cast(ulong)getKindByIndex!(ind, Value));
+        else return ValueDsc(getKindByIndex!(ind, Value));
     }
 
     TypeDsc impl()
@@ -212,16 +129,11 @@ template makeTypeDsc(T)
                 valueDsc!(ValueType!T)
             ));
         }
-        else static if (isAlgebraicType!T)
+        else static if (isTaggedVariant!T)
         {
-            enum dsc = makeTypeDsc!(Tuple!(Types!T)).getValue!TupleDsc;
-
-            static if (algebraicLibHasEnumKind)
-            {
-                enum el = makeTypeDsc!(TypeOfKind!T).get!EnumDsc;
-                return TypeDsc(TUnionDsc(el, dsc));
-            }
-            else return TypeDsc(TUnionDsc(dsc));
+            enum dsc = makeTypeDsc!(Tuple!(T.AllowedTypes)).get!TupleDsc;
+            enum el = makeTypeDsc!(T.Kind).get!EnumDsc;
+            return TypeDsc(TUnionDsc(el, dsc));
         }
         else static if (is(T == Tuple!X, X...))
         {
@@ -282,57 +194,59 @@ unittest
     import std : stderr;
 
     enum barDsc = makeTypeDsc!Bar;
-    static assert (barDsc.kindIs!ObjectDsc, "bar is not an object");
-    auto barDscObj = barDsc.getValue!ObjectDsc;
+    static assert (barDsc._is!ObjectDsc, "bar is not an object");
+    auto barDscObj = barDsc.get!ObjectDsc;
     //assert (barDscObj.name == "Bar"); ??
     assert (barDscObj.fields.length == 7);
 
-    assert (barDscObj.fields[0].type.kindIs!string);
-    // assert (barDscObj.fields[0].type.getValue!string == "Foo"); ??
+    import std.stdio;
+    barDscObj.fields[0].type.visit!(t=>stderr.writeln(barDscObj.fields[0].type, " ", t));
+    assert (barDscObj.fields[0].type._is!string);
+    // assert (barDscObj.fields[0].type.get!string == "Foo"); ??
     assert (barDscObj.fields[0].name == "foo");
 
-    assert (barDscObj.fields[1].type.kindIs!(TypeOfKind!Value));
-    assert (barDscObj.fields[1].type.getValue!(TypeOfKind!Value) == getKindByType!(string, Value));
+    assert (barDscObj.fields[1].type._is!(Value.Kind));
+    assert (barDscObj.fields[1].type.get!(Value.Kind) == getKindByType!(string, Value));
     assert (barDscObj.fields[1].name == "x");
 
-    assert (barDscObj.fields[2].type.kindIs!string);
-    //assert (barDscObj.fields[2].type.getValue!string == "Bar.IN"); ?? or "IN"
+    assert (barDscObj.fields[2].type._is!string);
+    //assert (barDscObj.fields[2].type.get!string == "Bar.IN"); ?? or "IN"
     assert (barDscObj.fields[2].name == "inField");
 
-    assert (barDscObj.fields[3].type.kindIs!string);
-    //assert (barDscObj.fields[3].type.getValue!string == "IN[]"); ??
+    assert (barDscObj.fields[3].type._is!string);
+    //assert (barDscObj.fields[3].type.get!string == "IN[]"); ??
     assert (barDscObj.fields[3].name == "arr1");
 
-    assert (barDscObj.fields[4].type.kindIs!string);
-    //assert (barDscObj.fields[4].type.getValue!string == "Foo[10]"); ??
+    assert (barDscObj.fields[4].type._is!string);
+    //assert (barDscObj.fields[4].type.get!string == "Foo[10]"); ??
     assert (barDscObj.fields[4].name == "arr2");
 
-    assert (barDscObj.fields[5].type.kindIs!string);
-    //assert (barDscObj.fields[5].type.getValue!string == "int[string]"); ??
+    assert (barDscObj.fields[5].type._is!string);
+    //assert (barDscObj.fields[5].type.get!string == "int[string]"); ??
     assert (barDscObj.fields[5].name == "arr3");
 
-    assert (barDscObj.fields[6].type.kindIs!string);
-    //assert (barDscObj.fields[6].type.getValue!string == "int[]"); ??
+    assert (barDscObj.fields[6].type._is!string);
+    //assert (barDscObj.fields[6].type.get!string == "int[]"); ??
     assert (barDscObj.fields[6].name == "arr4");
 
 
     enum barINDsc = makeTypeDsc!(Bar.IN);
-    static assert (barINDsc.kindIs!ObjectDsc);
-    auto barINDscObj = barINDsc.getValue!ObjectDsc;
+    static assert (barINDsc._is!ObjectDsc);
+    auto barINDscObj = barINDsc.get!ObjectDsc;
     assert (barINDscObj.fields.length == 2);
 
-    assert (barINDscObj.fields[0].type.kindIs!(TypeOfKind!Value));
-    assert (barINDscObj.fields[0].type.getValue!(TypeOfKind!Value) == getKindByType!(byte, Value));
+    assert (barINDscObj.fields[0].type._is!(Value.Kind));
+    assert (barINDscObj.fields[0].type.get!(Value.Kind) == getKindByType!(byte, Value));
     assert (barINDscObj.fields[0].name == "one");
 
-    assert (barINDscObj.fields[1].type.kindIs!(TypeOfKind!Value));
-    assert (barINDscObj.fields[1].type.getValue!(TypeOfKind!Value) == getKindByType!(ushort, Value));
+    assert (barINDscObj.fields[1].type._is!(Value.Kind));
+    assert (barINDscObj.fields[1].type.get!(Value.Kind) == getKindByType!(ushort, Value));
     assert (barINDscObj.fields[1].name == "two");
 
     enum fooDsc = makeTypeDsc!Foo;
-    static assert (fooDsc.kindIs!EnumDsc);
+    static assert (fooDsc._is!EnumDsc);
 
-    auto fooDscEnum = fooDsc.getValue!EnumDsc;
+    auto fooDscEnum = fooDsc.get!EnumDsc;
 
     assert (fooDscEnum.basetype == getKindByType!(string, Value));
     assert (fooDscEnum.def.length == 2);
@@ -340,27 +254,27 @@ unittest
     assert (fooDscEnum.def[1] == EnumDsc.MemberDsc("two", Value("TWO")));
 
     enum arr1Dsc = makeTypeDsc!(typeof(Bar.arr1));
-    static assert (arr1Dsc.kindIs!DArrayDsc);
+    static assert (arr1Dsc._is!DArrayDsc);
 
     enum arr2Dsc = makeTypeDsc!(typeof(Bar.arr2));
-    static assert (arr2Dsc.kindIs!SArrayDsc);
+    static assert (arr2Dsc._is!SArrayDsc);
 
     enum arr3Dsc = makeTypeDsc!(typeof(Bar.arr3));
-    static assert (arr3Dsc.kindIs!AArrayDsc);
+    static assert (arr3Dsc._is!AArrayDsc);
 
     enum valDsc = makeTypeDsc!Value;
-    static assert (valDsc.kindIs!TUnionDsc);
+    static assert (valDsc._is!TUnionDsc);
 
     alias Tup = Tuple!(Foo, string, long);
 
     enum tupDsc = makeTypeDsc!Tup;
-    static assert (tupDsc.kindIs!TupleDsc);
+    static assert (tupDsc._is!TupleDsc);
 
-    auto tupDscTup = tupDsc.getValue!TupleDsc;
+    auto tupDscTup = tupDsc.get!TupleDsc;
     assert (tupDscTup.elems.length == 3);
-    assert (tupDscTup.elems[0].kindIs!string);
-    assert (tupDscTup.elems[1].getValue!(TypeOfKind!Value) == getKindByType!(string, Value));
-    assert (tupDscTup.elems[2].getValue!(TypeOfKind!Value) == getKindByType!(long, Value));
+    assert (tupDscTup.elems[0]._is!string);
+    assert (tupDscTup.elems[1].get!(Value.Kind) == getKindByType!(string, Value));
+    assert (tupDscTup.elems[2].get!(Value.Kind) == getKindByType!(long, Value));
 
     version (test_print)
     {
