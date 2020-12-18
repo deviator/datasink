@@ -16,25 +16,25 @@ package
 class BaseTextDataSink : BaseDataSink
 {
 protected:
-    bool hasElems = false;
+    bool needSeparator = false;
 
     TextOutput output;
     IdTranslator idtr;
     ValueFormatter vfmt;
 
     void insertSeparator() { put(output, ", "); }
+    void insertIdentSep() { put(output, ": "); }
+    void printString(scope const(char[]) str) { put(output, str); }
 
     import std : Rebindable;
 
     Nullable!(Rebindable!(const(EnumDsc.MemberDsc[]))) enumMemberDef;
 
-    void putScopeStart()
-    {
-        const top = scopeStack.top;
-        //if (scopeStack.length > 1) printId(top.id);
+    ref const(Scope) scopeStackTop() const { return scopeStack.top; }
 
-        enum obj = "{ ";
-        enum arr = "[ ";
+    void putScopeStrings(string obj, string arr, scope void delegate() onEnum)
+    {
+        const top = scopeStackTop;
 
         final switch (top.kind) with(top.Kind)
         {
@@ -45,49 +45,39 @@ protected:
                 put(output, arr);
                 break;
             case enumEl:
-                enumMemberDef = top.get!EnumDsc.def;
+                onEnum();
                 break;
         }
     }
 
+    void putScopeStart()
+    {
+        putScopeStrings("{ ", "[ ",
+            { enumMemberDef = scopeStackTop.get!EnumDsc.def; });
+    }
+
     void putScopeEnd()
     {
-        const top = scopeStack.top;
-
-        enum obj = " }";
-        enum arr = " ]";
-
-        final switch (top.kind) with(top.Kind)
-        {
-            case object: case aArray: case tUnion:
-                put(output, obj);
-                break;
-            case sArray: case dArray: case tuple:
-                put(output, arr);
-                break;
-            case enumEl:
-                enumMemberDef.nullify;
-                break;
-        }
+        putScopeStrings(" }", " ]", { enumMemberDef.nullify; });
     }
 
     override // BaseDataSink
     {
         void onPushScope()
         {
-            if (hasElems) insertSeparator();
-            hasElems = false;
+            if (needSeparator) insertSeparator();
+            needSeparator = false;
             putScopeStart();
         }
 
         void onPopScope()
         {
-            hasElems = true;
+            needSeparator = true;
             putScopeEnd();
             if (scopeStack.length == 1)
             {
                 output.endOfBlock();
-                hasElems = false;
+                needSeparator = false;
             }
         }
     }
@@ -105,13 +95,15 @@ override:
 
     void putIdent(string id)
     {
-        if (hasElems) insertSeparator();
-        put(output, idtr.translateId(scopeStack.data, id));
-        put(output, ": ");
+        if (needSeparator) insertSeparator();
+        printString(idtr.translateId(scopeStack.data, id));
+        insertIdentSep();
+        needSeparator = false;
     }
 
     void putValue(in Value v)
     {
+        if (needSeparator) insertSeparator();
         if (enumMemberDef.isNull)
             vfmt.formatValue(output, scopeStack.data, "", v);
         else
@@ -119,7 +111,7 @@ override:
             auto x = enumMemberDef.get[v.get!uint].value;
             vfmt.formatValue(output, scopeStack.data, "", x);
         }
-        hasElems = true;
+        needSeparator = true;
     }
 }
 

@@ -245,6 +245,13 @@ auto getValue(X, T)(auto ref const T v) if (isAlgebraicType!T)
     static assert(0, UNKNOWNLIB);
 }
 
+template TypeByKind(T, alias kind)
+    if (isAlgebraicType!T && is(typeof(kind) == T.Kind))
+{
+    import std : staticIndexOf, EnumMembers;
+    alias TypeByKind = T.AllowedTypes[staticIndexOf!(kind, EnumMembers!(T.Kind))];
+}
+
 template Types(T) if (isAlgebraicType!T)
 {
     version (use_taggedalgebraic)

@@ -98,9 +98,7 @@ struct SArrayDsc
 
 struct TUnionDsc
 {
-    static if (algebraicLibHasEnumKind)
-        EnumDsc     kind;
-
+    EnumDsc     kind;
     TupleDsc    dsc;
 }
 
