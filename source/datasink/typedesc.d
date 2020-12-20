@@ -70,14 +70,15 @@ struct TUnionDsc
 }
 
 alias TypeDsc = TaggedVariant!(
-    ["object", "tuple",  "dArray", "sArray",  "aArray",  "tUnion",  "enumEl"],
-    ObjectDsc, TupleDsc, DArrayDsc, SArrayDsc, AArrayDsc, TUnionDsc, EnumDsc,
+    ["value", "object", "tuple",  "dArray", "sArray",  "aArray",  "tUnion",  "enumEl"],
+    Value.Kind, ObjectDsc, TupleDsc, DArrayDsc, SArrayDsc, AArrayDsc, TUnionDsc, EnumDsc,
 );
 
 template makeTypeDsc(T)
 {
-    import std : EnumMembers, map, array, OriginalType, to, ElementType;
-    import std.traits : isStaticArray,
+    import std : EnumMembers, map, array, OriginalType, to, ElementType, Unqual;
+    import std.traits : isArray,
+                        isStaticArray,
                         isDynamicArray,
                         isAssociativeArray,
                         KeyType,
@@ -91,13 +92,24 @@ template makeTypeDsc(T)
         //    return ValueDsc(Value(X.init).kind);
         //else
         //    return ValueDsc(nameOf!X);
-        enum ind = getKindIndex!(X, Value);
+        enum ind = getKindIndex!(Unqual!X, Value);
         static if (ind < 0) return ValueDsc(nameOf!X);
         else return ValueDsc(getKindByIndex!(ind, Value));
     }
 
     TypeDsc impl()
     {
+        enum vdsc = valueDsc!T;
+        static if (vdsc.kind == ValueDsc.Kind.base)
+        {
+            return TypeDsc(vdsc.get!(Value.Kind));
+        }
+        else
+        static if (is(T == bool))
+        {
+            return TypeDsc(Value.Kind.bit);
+        }
+        else
         static if (is(T == enum))
         {
             alias X = OriginalType!T;
@@ -111,31 +123,41 @@ template makeTypeDsc(T)
                     .array
             ));
         }
-        else static if (isStaticArray!T)
+        else
+        static if (isArray!T && is(Unqual!(ElementType!T) == void))
+        {
+            return TypeDsc(Value.Kind.raw);
+        }
+        else
+        static if (isStaticArray!T)
         {
             return TypeDsc(SArrayDsc(
                 T.length,
                 valueDsc!(ElementType!T)
             ));
         }
-        else static if (isDynamicArray!T)
+        else
+        static if (isDynamicArray!T)
         {
             return TypeDsc(DArrayDsc(valueDsc!(ElementType!T)));
         }
-        else static if (isAssociativeArray!T)
+        else
+        static if (isAssociativeArray!T)
         {
             return TypeDsc(AArrayDsc(
                 valueDsc!(KeyType!T),
                 valueDsc!(ValueType!T)
             ));
         }
-        else static if (isTaggedVariant!T)
+        else
+        static if (isTaggedVariant!T)
         {
             enum dsc = makeTypeDsc!(Tuple!(T.AllowedTypes)).get!TupleDsc;
             enum el = makeTypeDsc!(T.Kind).get!EnumDsc;
             return TypeDsc(TUnionDsc(el, dsc));
         }
-        else static if (is(T == Tuple!X, X...))
+        else
+        static if (is(T == Tuple!X, X...))
         {
             TupleDsc r;
 
@@ -147,7 +169,8 @@ template makeTypeDsc(T)
 
             return TypeDsc(r);
         }
-        else static if (is(T == struct) || is(T == union))
+        else
+        static if (is(T == struct) || is(T == union))
         {
             auto r = ObjectDsc(T.stringof, [], false);
 
@@ -168,6 +191,10 @@ template makeTypeDsc(T)
 
 unittest
 {
+    enum intDsc = makeTypeDsc!int;
+
+    static assert (intDsc.kind == TypeDsc.Kind.value);
+    static assert (intDsc.get!(Value.Kind) == Value.Kind.i32);
 
     enum Foo
     {
@@ -199,8 +226,6 @@ unittest
     //assert (barDscObj.name == "Bar"); ??
     assert (barDscObj.fields.length == 7);
 
-    import std.stdio;
-    barDscObj.fields[0].type.visit!(t=>stderr.writeln(barDscObj.fields[0].type, " ", t));
     assert (barDscObj.fields[0].type._is!string);
     // assert (barDscObj.fields[0].type.get!string == "Foo"); ??
     assert (barDscObj.fields[0].name == "foo");

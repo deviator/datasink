@@ -28,7 +28,7 @@ interface Stack(T)
     void pop();
 
 const @property:
-    bool empty();
+    final bool empty() { return length == 0; }
     size_t length();
     ref const(T) top();
     const(T[]) data();
@@ -51,7 +51,6 @@ override:
     }
 
 const @property:
-    bool empty() { return _data.length == 0; }
     size_t length() { return _data.length; }
     ref const(T) top() { return _data[$-1]; }
     const(T[]) data() { return _data; }

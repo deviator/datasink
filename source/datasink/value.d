@@ -1,5 +1,7 @@
 module datasink.value;
 
+public import mir.algebraic;
+
 // 0 и 1 специализируются в bool вместо int, bool нужно обернуть
 enum Bool : bool
 {
@@ -7,14 +9,9 @@ enum Bool : bool
     true_  = true,
 }
 
-public import mir.algebraic;
-
 alias Value = TaggedVariant!(
-    ["str", "raw", "bit",
-        "i8",  "u8",  "i16",
-        "u16", "i32", "u32",
-        "i64", "u64", "f32",
-        "f64"],
+    ["str", "raw", "bit", "i8",  "u8",  "i16",
+     "u16", "i32", "u32", "i64", "u64", "f32", "f64"],
     string,
     const(void)[],
     Bool,

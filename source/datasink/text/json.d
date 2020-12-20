@@ -33,11 +33,9 @@ const:
         put(output, Base64.encoder(r));
         put(output, '"');
     }
+
 override:
-    void formatValue(TextOutputRef output,
-                     scope const(Scope[]) scopeStack,
-                     string id,
-                     in Value val)
+    void formatValue(TextOutputRef output, const ScopeStack ss, in Value val)
     {
         FS: final switch (val.kind) with (Value.Kind)
         {
@@ -52,11 +50,8 @@ override:
                 put(output, cast(bool)(val.get!Bool) ? "true" : "false");
                 break;
 
-            case f32:
-                formattedWrite(output, "%.8f", val.get!float);
-                break;
-            case f64:
-                formattedWrite(output, "%.15f", val.get!double);
+            case f32: case f64:
+                formattedWrite(output, "%e", val.get!double);
                 break;
 
             static foreach (i, k; [i8, u8, i16, u16, i32, u32, i64, u64])
@@ -69,34 +64,182 @@ override:
     }
 }
 
-class JsonDataSink : BaseTextDataSink
+class JsonDataSink : BaseDataSink
 {
 protected:
+    bool pretty;
+    size_t offset;
+    string offsetStr = "  ";
 
-    JsonValueFormatter jvf;
+    bool needSeparator = false;
 
-    override // BaseTextDataSink
+    bool needIdent() const @property
     {
-        void insertSeparator() { put(output, ','); }
-        void insertIdentSep() { put(output, ':'); }
-        void printString(scope const(char[]) str)
-        { jvf.putEscapeString(output, str); }
+        if (needIdentStack.empty) return false;
+        return needIdentStack.top;
+    }
+    Stack!bool needIdentStack;
 
-        void putScopeStart()
-        {
-            putScopeStrings("{", "[",
-                { enumMemberDef = scopeStackTop.get!EnumDsc.def; });
-        }
+    AppenderOutputRef idTmpOutput;
+    TextOutput output;
+    IdTranslator idtr;
+    JsonValueFormatter vfmt;
 
-        void putScopeEnd()
-        { putScopeStrings("}", "]", { enumMemberDef.nullify; }); }
+    void printNewLine() { put(output, '\n'); printOffset(); }
+    void printSpace() { put(output, ' '); }
+    void printOffset()
+    {
+        import std : repeat, take;
+        put(output, offsetStr.repeat.take(offset));
     }
 
-public:
-    this(TextOutput o, IdTranslator tr, JsonValueFormatter fv)
+    void printValueSep()
     {
-        jvf = fv.or(new JsonValueFormatter);
-        super(o, tr, jvf);
+        put(output, ',');
+        if (pretty) printNewLine();
+    }
+
+    void printIdentSep()
+    {
+        put(output, ':');
+        if (pretty) printSpace();
+    }
+
+    void printString(scope const(char[]) str)
+    { vfmt.putEscapeString(output, str); }
+
+    void printIdent(Ident id)
+    {
+        idTmpOutput.clear();
+        idtr.translateId(idTmpOutput, scopeStack, id);
+        printString(idTmpOutput.data);
+        printIdentSep();
+    }
+
+    import std : Rebindable;
+
+    alias EnumMemberDef = Nullable!(Rebindable!(const(EnumDsc.MemberDsc[])));
+
+    EnumMemberDef enumMemberDef;
+
+    void putScope(bool start)
+    {
+        const top = scopeStack.top;
+
+        void needIdentManip(bool n)
+        {
+            if (start) needIdentStack.push(n);
+            else needIdentStack.pop();
+        }
+
+        static immutable string[2] obj = ["{", "}"];
+        static immutable string[2] arr = ["[", "]"];
+
+        void scopeBrackets(string[2] br)
+        {
+            if (start)
+            {
+                put(output, br[0]);
+                if (pretty)
+                {
+                    offset++;
+                    printNewLine();
+                }
+            }
+            else
+            {
+                if (pretty)
+                {
+                    offset--;
+                    printNewLine();
+                }
+                put(output, br[1]);
+            }
+        }
+
+        final switch (top.dsc.kind) with(top.dsc.Kind)
+        {
+            case value: break;
+            case object: case tUnion:
+                scopeBrackets(obj);
+                needIdentManip(true);
+                break;
+            case aArray:
+                scopeBrackets(obj);
+                needIdentManip(false);
+                break;
+            case sArray: case dArray: case tuple:
+                scopeBrackets(arr);
+                needIdentManip(false);
+                break;
+            case enumEl:
+                if (!start) enumMemberDef.nullify; 
+                else enumMemberDef = scopeStack.top.dsc.get!EnumDsc.def;
+                break;
+        }
+    }
+
+    override // BaseDataSink
+    {
+        void onPushScope()
+        {
+            if (needSeparator) printValueSep();
+            needSeparator = false;
+            if (needIdent) printIdent(scopeStack.top.id);
+            putScope(true);
+        }
+
+        void onPopScope()
+        {
+            const topid = scopeStack.top.id;
+            if (topid.kind == Ident.Kind.aadata && topid.get!AAData == AAData.key)
+                printIdentSep();
+            else
+                needSeparator = true;
+
+            putScope(false);
+            if (scopeStack.length == 1)
+            {
+                output.endOfBlock();
+                reset();
+            }
+        }
+    }
+
+    void reset()
+    {
+        needSeparator = false;
+        assert (enumMemberDef.isNull);
+        assert (needIdentStack.empty);
+    }
+    
+public:
+
+    this(TextOutput o, IdTranslator tr, JsonValueFormatter vf, bool pretty)
+    {
+        output = enforce(o, "output is null");
+        idtr = tr.or(new IdNoTranslator);
+        vfmt = vf.or(new JsonValueFormatter);
+        idTmpOutput = new AppenderOutputRef;
+        needIdentStack = new BaseStack!bool;
+        this.pretty = pretty;
+    }
+
+    this(TextOutput o, bool pretty=false) { this(o, null, null, pretty); }
+
+override:
+
+    void putValue(in Value v)
+    {
+        if (needSeparator) printValueSep();
+
+        if (enumMemberDef.isNull)
+            vfmt.formatValue(output, scopeStack, v);
+        else
+        {
+            auto x = enumMemberDef.get[v.get!uint].name;
+            vfmt.formatValue(output, scopeStack, Value(x));
+        }
     }
 }
 
@@ -109,7 +252,7 @@ unittest
         "two": "два\tраза"
     ]);
 
-    auto jds = new JsonDataSink(ao, ru, null);
+    auto jds = new JsonDataSink(ao, ru, null, false);
 
     auto brds = new BaseRootDataSink(jds);
 
@@ -119,8 +262,8 @@ unittest
         string two;
     }
     brds.putData(Foo(10, `hel"lo`));
-    assert (ao.data[] == `{"один\nраз":10,"два\tраза":"hel\"lo"}`);
-    ao.data.clear();
+    assert (ao.buffer[] == `{"один\nраз":10,"два\tраза":"hel\"lo"}`);
+    ao.clear();
 
     static struct Bar
     {
@@ -129,12 +272,86 @@ unittest
         string three;
     }
     brds.putData(Bar(10, [5,6,7], `hel,lo`));
-    assert (ao.data[] == `{"один\nраз":10,"два\tраза":[5,6,7],"three":"hel,lo"}`);
-    ao.data.clear();
+    assert (ao.buffer[] == `{"один\nраз":10,"два\tраза":[5,6,7],"three":"hel,lo"}`);
+    ao.clear();
 
     static struct RawHolder { const(void)[] raw; }
     const raw = cast(ubyte[])"some text";
     brds.putData(RawHolder(raw));
-    assert (ao.data[] == `{"raw":"c29tZSB0ZXh0"}`);
-    ao.data.clear();
+    assert (ao.buffer[] == `{"raw":"c29tZSB0ZXh0"}`);
+    ao.clear();
+}
+
+unittest
+{
+    auto ao = new AppenderOutput;
+
+    auto jds = new JsonDataSink(ao, true);
+
+    auto brds = new BaseRootDataSink(jds);
+
+    import std.stdio;
+
+    static struct Foo
+    {
+        int first;
+        string second;
+    }
+
+    brds.putData(Foo(10, "hello"));
+    assert (ao.buffer[] == "{\n  \"first\": 10,\n  \"second\": \"hello\"\n}");
+    ao.clear();
+
+    static struct Bar
+    {
+        ubyte[][] bytes;
+        string name;
+        Foo[] foos;
+    }
+
+    enum TEnum
+    {
+        one = "ONE",
+        two = "TWO"
+    }
+
+    static struct Baz
+    {
+        Bar[] bars;
+        int[string] zz;
+        TEnum tenum;
+    }
+
+    brds.putData(Baz(
+        [
+            Bar([[1],[1,2],[3]], "N1", [Foo(10, "hello"), Foo(42, "world")]),
+            Bar([[6,5],[5],[6]], "21", [Foo(33, "bravo"), Foo(77, "zzzzz")]),
+        ],
+        [ "asdf": 1024 ],
+        TEnum.one
+    ));
+
+    enum expect1 = 
+        "{\n  \"bars\": [\n"~
+        "    {\n      \"bytes\": [\n"~
+        "        [\n          1\n        ],\n"~
+        "        [\n          1,\n          2\n        ],\n"~
+        "        [\n          3\n        ]\n      ],\n"~
+        "      \"name\": \"N1\",\n"~
+        "      \"foos\": [\n"~
+        "        {\n          \"first\": 10,\n          \"second\": \"hello\"\n        },\n"~
+        "        {\n          \"first\": 42,\n          \"second\": \"world\"\n        }\n"~
+        "      ]\n    },\n"~
+        "    {\n      \"bytes\": [\n"~
+        "        [\n          6,\n          5\n        ],\n"~
+        "        [\n          5\n        ],\n"~
+        "        [\n          6\n        ]\n      ],\n"~
+        "      \"name\": \"21\",\n"~
+        "      \"foos\": [\n"~
+        "        {\n          \"first\": 33,\n          \"second\": \"bravo\"\n        },\n"~
+        "        {\n          \"first\": 77,\n          \"second\": \"zzzzz\"\n        }\n"~
+        "      ]\n    }\n  ],\n"~
+        "  \"zz\": {\n    \"asdf\": 1024\n  },\n"~
+        "  \"tenum\": \"one\"\n}";
+    assert(ao.buffer[] == expect1);
 }

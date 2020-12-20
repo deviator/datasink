@@ -6,21 +6,29 @@ package import datasink.value;
 package import datasink.typedesc;
 package import datasink.util;
 
-alias Scope = TypeDsc;
-alias ScopeStack = Stack!Scope;
+enum AAData { key, value }
 
-interface FieldSink
+alias Ident = TaggedVariant!(
+    ["none",     "name",  "index", "aadata"],
+    typeof(null), string,  ulong,   AAData,
+);
+
+struct Scope
 {
-    void putIdent(string id);
-    void putValue(in Value v);
+    TypeDsc dsc;
+    Ident id;
 }
 
-interface DataSink : FieldSink
+alias ScopeStack = Stack!Scope;
+
+interface DataSink
 {
     void setScopeStack(const(ScopeStack));
 
     protected void onPushScope();
     protected void onPopScope();
+
+    void putValue(in Value v);
 }
 
 final class NullDataSink : DataSink
@@ -29,7 +37,6 @@ override:
     void setScopeStack(const(ScopeStack)) { }
     protected void onPushScope() { }
     protected void onPopScope() { }
-    void putIdent(string id) { }
     void putValue(in Value v) { }
 }
 
@@ -51,7 +58,6 @@ override:
 abstract:
     protected void onPushScope();
     protected void onPopScope();
-    void putIdent(string id);
     void putValue(in Value v);
 }
 
@@ -70,8 +76,8 @@ override:
     protected void onPushScope() { foreach (s; sinks) s.onPushScope(); }
     protected void onPopScope()  { foreach (s; sinks) s.onPopScope(); }
 
-    void putIdent(string id)  { foreach (s; sinks) s.putIdent(id); }
-    void putValue(in Value v) { foreach (s; sinks) s.putValue(v); }
+    void putValue(in Value v)
+    { foreach (s; sinks) s.putValue(v); }
 }
 
 class EnableDataSink : DataSink
@@ -82,7 +88,10 @@ class EnableDataSink : DataSink
     this(DataSink sink, ValueSrc!bool en=null)
     {
         this.sink = enforce(sink, "sink is null");
-        enable = en.or(new class ValueSrc!bool { override bool get() const { return true; } });
+        enable = en.or(new class ValueSrc!bool
+                        {
+                            override bool get() const { return true; }
+                        });
     }
 
 override:
@@ -91,24 +100,33 @@ override:
     protected void onPushScope() { if (enable.get()) sink.onPushScope(); }
     protected void onPopScope()  { if (enable.get()) sink.onPopScope(); }
 
-    void putIdent(string id)  { if (enable.get()) sink.putIdent(id); }
-    void putValue(in Value v) { if (enable.get()) sink.putValue(v); }
+    void putValue(in Value v)
+    { if (enable.get()) sink.putValue(v); }
 }
 
-interface RootDataSink : FieldSink
+abstract class RootDataSink
 {
-    void pushScope(Scope);
-    void popScope();
+    /++ tmpIdent need if next put data type are not known,
+        for example in case when RootDataSink passed to function that
+        generate data, but embracing data are started output
+    +/
+    protected Nullable!Ident tmpIdent;
+    final void setTmpIdent(Ident id) { tmpIdent = id; }
 
-    final auto scopeGuard(Scope s)
+    abstract void pushScope(Scope);
+    abstract void popScope();
+    abstract void putValue(in Value v);
+
+    auto scopeGuard(Scope s)
     {
         pushScope(s);
         return ScopeGuard(&popScope);
     }
 
-    final void putData(V)(in V val)
+    final void putData(V)(in V val, Ident id=Ident(null))
     {
-        import std : Unqual, isArray, isAssociativeArray, isSomeString, ElementType;
+        import std : Unqual, isArray, isAssociativeArray,
+                     isSomeString, ElementType;
         alias T = Unqual!V;
 
         uint getEnumIndex(E)(E e) if (is(E == enum))
@@ -118,9 +136,17 @@ interface RootDataSink : FieldSink
             assert (0, "bad enum value");
         }
 
+        // see tmpIdent description
+        if (id.isNull && !tmpIdent.isNull)
+        {
+            id = tmpIdent.get();
+            tmpIdent.nullify();
+        }
+
+        auto _ = scopeGuard(Scope(makeTypeDsc!T, id));
+
         static if (is(T == enum) && !is(T == Bool))
         {
-            auto _ = scopeGuard(makeTypeDsc!T);
             putValue(Value(getEnumIndex(val)));
         }
         else
@@ -128,8 +154,7 @@ interface RootDataSink : FieldSink
                   !isSomeString!T &&
                   !is(Unqual!(ElementType!T) == void))
         {
-            auto _ = scopeGuard(makeTypeDsc!T);
-            foreach (v; val) putData(v);
+            foreach (i, v; val) putData(v, Ident(i));
         }
         else
         static if (is(T == bool))
@@ -142,33 +167,37 @@ interface RootDataSink : FieldSink
             putValue(Value(val));
         }
         else
+        static if (isAssociativeArray!T)
         {
-            auto _ = scopeGuard(makeTypeDsc!T);
-
-            static if (isAssociativeArray!T)
+            foreach (k, v; val)
             {
-                foreach (k, v; val)
-                {
-                    putData(k);
-                    putData(v);
-                }
+                putData(k, Ident(AAData.key));
+                putData(v, Ident(AAData.value));
             }
-            else static if (isTaggedVariant!T)
-            {
-                putData(val.kind);
-                val.visit!(v => putData(v));
-            }
-            else static if (is(T == struct))
-            {
-                foreach (i, ref v; val.tupleof)
-                {
-                    enum name = __traits(identifier, val.tupleof[i]);
-                    putIdent(name);
-                    putData(v);
-                }
-            }
-            else static assert(0, "unsupported type: " ~ T.stringof);
         }
+        else
+        static if (isTaggedVariant!T)
+        {
+            putData(val.kind);
+            const kindIndex = getEnumIndex(val.kind);
+            val.visit!(v => putData(v, Ident(kindIndex)));
+        }
+        else
+        static if (is(T == Tuple!X, X...))
+        {
+            foreach (i, ref v; val.tupleof)
+                putData(v, Ident(i));
+        }
+        else
+        static if (is(T == struct))
+        {
+            foreach (i, ref v; val.tupleof)
+            {
+                enum name = __traits(identifier, val.tupleof[i]);
+                putData(v, Ident(name));
+            }
+        }
+        else static assert(0, "unsupported type: " ~ T.stringof);
     }
 }
 
@@ -211,7 +240,6 @@ override:
         scopeStack.pop();
     }
 
-    void putIdent(string id) { sink.putIdent(id); }
     void putValue(in Value v) { sink.putValue(v); }
 }
 
@@ -232,19 +260,11 @@ version (unittest)
 
     class TestDataSink : BaseDataSink
     {
-        string[] ids;
         Value[] vals;
-
-        void drop()
-        {
-            ids.length = 0;
-            vals.length = 0;
-        }
-
+        void drop() { vals.length = 0; }
     override:
         protected void onPushScope() { }
         protected void onPopScope() { }
-        void putIdent(string id) { ids ~= id; }
         void putValue(in Value v) { vals ~= v; }
     }
 
@@ -284,62 +304,31 @@ unittest
     {
         auto _ = dropGuard();
         brds.putData(10);
-        assert (tss.history.length == 0);
-        assert (ds.ids.length == 0);
-        assert (ds.vals.length == 1);
-        assert (ds.vals[0] != Value(cast(byte)10));
-        assert (ds.vals[0] != Value(cast(ubyte)10));
-        assert (ds.vals[0] != Value(cast(short)10));
-        assert (ds.vals[0] != Value(cast(ushort)10));
-        assert (ds.vals[0] == Value(10));
-        assert (ds.vals[0] != Value(10U));
-        assert (ds.vals[0] != Value(10L));
-        assert (ds.vals[0] != Value(10UL));
-        assert (ds.vals[0] != Value(10.0f));
-        assert (ds.vals[0] != Value(10.0));
+        assert (tss.history == [Scope(TypeDsc(Value.Kind.i32), Ident(null))]);
+        assert (ds.vals == [Value(10)]);
+        assert (ds.vals[0].kind == Value.Kind.i32);
     }
 
     {
         auto _ = dropGuard();
         brds.putData(cast(ubyte)10);
-        assert (tss.history.length == 0);
-        assert (ds.ids.length == 0);
-        assert (ds.vals.length == 1);
-        assert (ds.vals[0] != Value(cast(byte)10));
-        assert (ds.vals[0] == Value(cast(ubyte)10));
-        assert (ds.vals[0] != Value(cast(short)10));
-        assert (ds.vals[0] != Value(cast(ushort)10));
-        assert (ds.vals[0] != Value(10));
-        assert (ds.vals[0] != Value(10U));
-        assert (ds.vals[0] != Value(10L));
-        assert (ds.vals[0] != Value(10UL));
-        assert (ds.vals[0] != Value(10.0f));
-        assert (ds.vals[0] != Value(10.0));
+        assert (tss.history == [Scope(TypeDsc(Value.Kind.u8), Ident(null))]);
+        assert (ds.vals == [Value(cast(ubyte)10)]);
+        assert (ds.vals[0].kind == Value.Kind.u8);
     }
 
     {
         auto _ = dropGuard();
         brds.putData(10.0);
-        assert (tss.history.length == 0);
-        assert (ds.ids.length == 0);
-        assert (ds.vals.length == 1);
-        assert (ds.vals[0] != Value(cast(byte)10));
-        assert (ds.vals[0] != Value(cast(ubyte)10));
-        assert (ds.vals[0] != Value(cast(short)10));
-        assert (ds.vals[0] != Value(cast(ushort)10));
-        assert (ds.vals[0] != Value(10));
-        assert (ds.vals[0] != Value(10U));
-        assert (ds.vals[0] != Value(10L));
-        assert (ds.vals[0] != Value(10UL));
-        assert (ds.vals[0] != Value(10.0f));
-        assert (ds.vals[0] == Value(10.0));
+        assert (tss.history == [Scope(TypeDsc(Value.Kind.f64), Ident(null))]);
+        assert (ds.vals == [Value(10.0)]);
+        assert (ds.vals[0].kind == Value.Kind.f64);
     }
 
     {
         auto _ = dropGuard();
         brds.putData("hello");
-        assert (tss.history.length == 0);
-        assert (ds.ids.length == 0);
+        assert (tss.history == [Scope(TypeDsc(Value.Kind.str), Ident(null))]);
         assert (ds.vals == [Value("hello")]);
     }
 
@@ -347,9 +336,8 @@ unittest
         auto _ = dropGuard();
         void[] foo = [cast(ubyte)0xde, 0xad, 0xbe, 0xaf];
         brds.putData(foo);
-        assert (tss.history.length == 0);
-        assert (ds.ids.length == 0);
-        assert (ds.vals.length == 1);
+        assert (tss.history == [Scope(TypeDsc(Value.Kind.raw), Ident(null))]);
+        assert (ds.vals == [Value(foo)]);
         assert (ds.vals[0].kind == Value.Kind.raw);
         assert (ds.vals[0].get!(const(void)[]) == foo);
     }
@@ -358,8 +346,7 @@ unittest
         auto _ = dropGuard();
         auto foo = cast(Bool)true;
         brds.putData(foo);
-        assert (tss.history.length == 0);
-        assert (ds.ids.length == 0);
+        assert (tss.history == [Scope(TypeDsc(Value.Kind.bit), Ident(null))]);
         assert (ds.vals.length == 1);
         assert (ds.vals[0].kind == Value.Kind.bit);
         assert (ds.vals[0].get!Bool == Bool.true_);
@@ -369,8 +356,7 @@ unittest
         auto _ = dropGuard();
         bool foo = true;
         brds.putData(foo);
-        assert (tss.history.length == 0);
-        assert (ds.ids.length == 0);
+        assert (tss.history == [Scope(TypeDsc(Value.Kind.bit), Ident(null))]);
         assert (ds.vals.length == 1);
         assert (ds.vals[0].kind == Value.Kind.bit);
         assert (ds.vals[0].get!Bool == Bool.true_);
@@ -380,22 +366,31 @@ unittest
         auto _ = dropGuard();
         auto foo = SimpleStruct(12, "hello");
         brds.putData(foo);
-        assert (tss.history.length == 1);
-        assert (tss.history[0].kind == TypeDsc.Kind.object);
-        assert (ds.ids == ["field1", "field2"]);
+        size_t p;
+
+        assert (tss.history[p].dsc.kind == TypeDsc.Kind.object);
+        assert (tss.history[p].id == Ident(null));
+        p++;
+        assert (tss.history[p].dsc == TypeDsc(Value.Kind.i32));
+        assert (tss.history[p].id == Ident("field1"));
+        p++;
+        assert (tss.history[p].dsc == TypeDsc(Value.Kind.str));
+        assert (tss.history[p].id == Ident("field2"));
+        p++;
+        assert (tss.history.length == p);
+
         assert (ds.vals.length == 2);
         assert (ds.vals[0].kind == Value.Kind.i32);
         assert (ds.vals[0].get!int == 12);
-        assert (ds.vals[1].kind == Value.Kind.str);
-        assert (ds.vals[1].get!string == "hello");
+        assert (ds.vals[1] == Value("hello"));
     }
 
     {
         auto _ = dropGuard();
         brds.putData(NumEnum.one);
         assert (tss.history.length == 1);
-        assert (tss.history[0].kind == TypeDsc.Kind.enumEl);
-        assert (ds.ids.length == 0);
+        assert (tss.history[0].dsc.kind == TypeDsc.Kind.enumEl);
+        assert (tss.history[0].dsc.get!EnumDsc.def.length == 2);
         assert (ds.vals.length == 1);
         assert (ds.vals[0].kind == Value.Kind.u32);
         assert (ds.vals[0].get!uint == 0); // index of 'one'
@@ -406,17 +401,22 @@ unittest
         const foo = NumEnumArrayStruct([NumEnum.one, NumEnum.two]);
         brds.putData(foo);
         size_t p;
-        assert (tss.history[p++].kind == TypeDsc.Kind.object);
-            assert (tss.history[p++].kind == TypeDsc.Kind.dArray);
-                assert (tss.history[p++].kind == TypeDsc.Kind.enumEl); // one
-                assert (tss.history[p++].kind == TypeDsc.Kind.enumEl); // two
+        assert (tss.history[p].dsc.kind == TypeDsc.Kind.object);
+        assert (tss.history[p].id == Ident(null));
+            p++;
+            assert (tss.history[p].dsc.kind == TypeDsc.Kind.dArray);
+            assert (tss.history[p].id == Ident("foos"));
+            p++;
+                assert (tss.history[p].dsc.kind == TypeDsc.Kind.enumEl);
+                assert (tss.history[p].id == Ident(0));
+                p++;
+                assert (tss.history[p].dsc.kind == TypeDsc.Kind.enumEl);
+                assert (tss.history[p].id == Ident(1));
+                p++;
         assert (tss.history.length == p);
-        assert (ds.ids == ["foos"]);
         assert (ds.vals.length == 2);
-        assert (ds.vals[0].kind == Value.Kind.u32);
-        assert (ds.vals[0].get!uint == 0); // index of 'one'
-        assert (ds.vals[1].kind == Value.Kind.u32);
-        assert (ds.vals[1].get!uint == 1); // index of 'two'
+
+        assert (ds.vals == [Value(0U), Value(1U)]); // index of 'one' and 'two'
     }
 
     {
@@ -427,21 +427,32 @@ unittest
         ];
         brds.putData(foo);
         size_t p;
-        assert (tss.history[p++].kind == TypeDsc.Kind.sArray);
-            assert (tss.history[p++].kind == TypeDsc.Kind.object);
-                assert (tss.history[p++].kind == TypeDsc.Kind.dArray);
-                    assert (tss.history[p++].kind == TypeDsc.Kind.enumEl);
-                    assert (tss.history[p++].kind == TypeDsc.Kind.enumEl);
-                    assert (tss.history[p++].kind == TypeDsc.Kind.enumEl);
-            assert (tss.history[p++].kind == TypeDsc.Kind.object);
-                assert (tss.history[p++].kind == TypeDsc.Kind.dArray);
+        assert (tss.history[p].dsc.kind == TypeDsc.Kind.sArray);
+        assert (tss.history[p].id == Ident(null));
+        p++;
+            assert (tss.history[p].dsc.kind == TypeDsc.Kind.object);
+            assert (tss.history[p].id == Ident(0));
+            p++;
+                assert (tss.history[p].dsc.kind == TypeDsc.Kind.dArray);
+                assert (tss.history[p].id == Ident("fs"));
+                p++;
+                    assert (tss.history[p].dsc.kind == TypeDsc.Kind.enumEl);
+                    assert (tss.history[p].id == Ident(0));
+                    p++;
+                    assert (tss.history[p].dsc.kind == TypeDsc.Kind.enumEl);
+                    assert (tss.history[p].id == Ident(1));
+                    p++;
+                    assert (tss.history[p].dsc.kind == TypeDsc.Kind.enumEl);
+                    assert (tss.history[p].id == Ident(2));
+                    p++;
+            assert (tss.history[p].dsc.kind == TypeDsc.Kind.object);
+            assert (tss.history[p].id == Ident(1));
+            p++;
+                assert (tss.history[p].dsc.kind == TypeDsc.Kind.dArray);
+                assert (tss.history[p].id == Ident("fs"));
+                p++;
         assert (tss.history.length == p);
-        assert (ds.ids == ["fs", "fs"]);
-        assert (ds.vals.length == 3);
-        assert (ds.vals[0].kind == Value.Kind.u32);
-        assert (ds.vals[0].get!uint == 0);
-        assert (ds.vals[1].get!uint == 0);
-        assert (ds.vals[2].get!uint == 1);
+        assert (ds.vals == [Value(0U), Value(0U), Value(1U)]);
     }
 
     assert (tss.empty);

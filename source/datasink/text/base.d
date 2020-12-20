@@ -13,73 +13,111 @@ package
     import std.exception : enforce;
 }
 
-class BaseTextDataSink : BaseDataSink
+class ExampleTextDataSink : BaseDataSink
 {
 protected:
     bool needSeparator = false;
 
+    bool needIdent() const @property
+    {
+        if (needIdentStack.empty) return false;
+        return needIdentStack.top;
+    }
+    Stack!bool needIdentStack;
+
+    AppenderOutputRef idTmpOutput;
     TextOutput output;
     IdTranslator idtr;
     ValueFormatter vfmt;
 
-    void insertSeparator() { put(output, ", "); }
-    void insertIdentSep() { put(output, ": "); }
+    void printValueSep() { put(output, ", "); }
+    void printIdentSep() { put(output, ": "); }
     void printString(scope const(char[]) str) { put(output, str); }
+
+    void printIdent(Ident id)
+    {
+        idTmpOutput.clear();
+        idtr.translateId(idTmpOutput, scopeStack, id);
+        printString(idTmpOutput.data);
+        printIdentSep();
+    }
 
     import std : Rebindable;
 
-    Nullable!(Rebindable!(const(EnumDsc.MemberDsc[]))) enumMemberDef;
+    alias EnumMemberDef = Nullable!(Rebindable!(const(EnumDsc.MemberDsc[])));
+
+    EnumMemberDef enumMemberDef;
 
     ref const(Scope) scopeStackTop() const { return scopeStack.top; }
 
-    void putScopeStrings(string obj, string arr, scope void delegate() onEnum)
+    void putScopeStrings(bool start, string obj, string arr)
     {
         const top = scopeStackTop;
 
-        final switch (top.kind) with(top.Kind)
+        void onStartPushNeedIdent(bool n)
         {
-            case object: case aArray: case tUnion:
+            if (start) needIdentStack.push(n);
+            else needIdentStack.pop();
+        }
+
+        final switch (top.dsc.kind) with(top.dsc.Kind)
+        {
+            case value: break;
+            case object: case tUnion:
                 put(output, obj);
+                onStartPushNeedIdent(true);
+                break;
+            case aArray:
+                put(output, obj);
+                onStartPushNeedIdent(false);
                 break;
             case sArray: case dArray: case tuple:
                 put(output, arr);
+                onStartPushNeedIdent(false);
                 break;
             case enumEl:
-                onEnum();
+                if (!start) enumMemberDef.nullify; 
+                else enumMemberDef = scopeStackTop.dsc.get!EnumDsc.def;
                 break;
         }
     }
 
-    void putScopeStart()
-    {
-        putScopeStrings("{ ", "[ ",
-            { enumMemberDef = scopeStackTop.get!EnumDsc.def; });
-    }
+    void putScopeStart() { putScopeStrings(true, "{ ", "[ "); }
 
-    void putScopeEnd()
-    {
-        putScopeStrings(" }", " ]", { enumMemberDef.nullify; });
-    }
+    void putScopeEnd() { putScopeStrings(false, " }", " ]"); }
 
     override // BaseDataSink
     {
         void onPushScope()
         {
-            if (needSeparator) insertSeparator();
+            if (needSeparator) printValueSep();
             needSeparator = false;
+            if (needIdent) printIdent(scopeStack.top.id);
             putScopeStart();
         }
 
         void onPopScope()
         {
-            needSeparator = true;
+            const topid = scopeStack.top.id;
+            if (topid.kind == Ident.Kind.aadata && topid.get!AAData == AAData.key)
+                printIdentSep();
+            else
+                needSeparator = true;
+
             putScopeEnd();
             if (scopeStack.length == 1)
             {
                 output.endOfBlock();
-                needSeparator = false;
+                reset();
             }
         }
+    }
+
+    void reset()
+    {
+        needSeparator = false;
+        assert (enumMemberDef.isNull);
+        assert (needIdentStack.empty);
     }
     
 public:
@@ -89,29 +127,23 @@ public:
         output = enforce(o, "output is null");
         idtr = tr.or(new IdNoTranslator);
         vfmt = vf.or(new SimpleValueFormatter);
+        idTmpOutput = new AppenderOutputRef;
+        needIdentStack = new BaseStack!bool;
     }
 
 override:
 
-    void putIdent(string id)
-    {
-        if (needSeparator) insertSeparator();
-        printString(idtr.translateId(scopeStack.data, id));
-        insertIdentSep();
-        needSeparator = false;
-    }
-
     void putValue(in Value v)
     {
-        if (needSeparator) insertSeparator();
+        if (needSeparator) printValueSep();
+
         if (enumMemberDef.isNull)
-            vfmt.formatValue(output, scopeStack.data, "", v);
+            vfmt.formatValue(output, scopeStack, v);
         else
         {
-            auto x = enumMemberDef.get[v.get!uint].value;
-            vfmt.formatValue(output, scopeStack.data, "", x);
+            auto x = enumMemberDef.get[v.get!uint].name;
+            vfmt.formatValue(output, scopeStack, Value(x));
         }
-        needSeparator = true;
     }
 }
 
@@ -119,7 +151,7 @@ unittest
 {
     auto ao = new AppenderOutput;
 
-    auto tds = new BaseTextDataSink(ao, null, null);
+    auto tds = new ExampleTextDataSink(ao, null, null);
 
     auto brds = new BaseRootDataSink(tds);
 
@@ -130,10 +162,67 @@ unittest
     }
 
     brds.putData(Foo(10, "hello"));
-    assert (ao.data[] == "{ first: 10, second: hello }");
-    ao.data.clear();
+    import std.stdio;
+    //stderr.writeln(ao.buffer[]);
+    assert (ao.buffer[] == "{ first: 10, second: hello }");
+    ao.clear();
 
     brds.putData(Foo(42, "world"));
-    assert (ao.data[] == "{ first: 42, second: world }");
-    ao.data.clear();
+    assert (ao.buffer[] == "{ first: 42, second: world }");
+    ao.clear();
+
+    static struct Bar
+    {
+        ubyte[][] bytes;
+        string name;
+        Foo[] foos;
+    }
+
+    enum TEnum
+    {
+        one = "ONE",
+        two = "TWO"
+    }
+
+    static struct Baz
+    {
+        Bar[] bars;
+        int[string] zz;
+        TEnum tenum;
+    }
+
+    brds.putData(Baz(
+        [
+            Bar([[1],[1,2],[3]], "N1", [Foo(10, "hello"), Foo(42, "world")]),
+            Bar([[6,5],[5],[6]], "21", [Foo(33, "bravo"), Foo(77, "zzzzz")]),
+        ],
+        [ "asdf": 1024 ],
+        TEnum.one
+    ));
+    enum expect1 = "{ "~
+            "bars: [ "~
+                "{ "~
+                    "bytes: [ [ 1 ], [ 1, 2 ], [ 3 ] ], "~
+                    "name: N1, "~
+                    "foos: [ "~
+                        "{ first: 10, second: hello }, "~
+                        "{ first: 42, second: world } "~
+                    "] "~
+                "}, "~
+                "{ "~
+                    "bytes: [ [ 6, 5 ], [ 5 ], [ 6 ] ], "~
+                    "name: 21, "~
+                    "foos: [ "~
+                        "{ first: 33, second: bravo }, "~
+                        "{ first: 77, second: zzzzz } "~
+                    "] "~
+                "} "~
+            "], "~ 
+            "zz: { asdf: 1024 }, "~
+            "tenum: one " ~
+        "}";
+    //stderr.writeln(ao.buffer[]);
+    //stderr.writeln(expect1);
+    assert (ao.buffer[] == expect1);
+    ao.clear();
 }
