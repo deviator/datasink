@@ -28,11 +28,16 @@ protected:
 
     abstract void reset();
 
+    CtrlTextBuffer makeCtrlTextBuffer()
+    {
+        return new AppenderBuffer;
+    }
+
 public:
     this(TextSink ts)
     {
         textSink = enforce(ts, "text sink is null");
-        temp = new AppenderBuffer;
+        temp = makeCtrlTextBuffer();
     }
 }
 
@@ -147,7 +152,7 @@ public:
         idtr = tr.or(new IdNoTranslator);
         vfmt = vf.or(new SimpleValueFormatter);
 
-        idTmpOutput = new AppenderBuffer;
+        idTmpOutput = makeCtrlTextBuffer();
         needIdentStack = new BaseStack!bool;
     }
 

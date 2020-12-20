@@ -84,11 +84,9 @@ protected:
     IdTranslator idtr;
     CSVValueFormatter vfmt;
 
-    Appender!(char[]) lastHeader;
-
+    CtrlTextBuffer lastHeader;
     CtrlTextBuffer headerBuffer;
     CtrlTextBuffer dataBuffer;
-
     CtrlTextBuffer printIdentTmp;
 
     bool needSeparator;
@@ -152,7 +150,6 @@ protected:
         void reset()
         {
             needSeparator = false;
-
         }
     }
 
@@ -161,9 +158,10 @@ public:
     {
         super(ts);
 
-        headerBuffer = new AppenderBuffer;
-        dataBuffer = new AppenderBuffer;
-        printIdentTmp = new AppenderBuffer;
+        lastHeader    = makeCtrlTextBuffer();
+        headerBuffer  = makeCtrlTextBuffer();
+        dataBuffer    = makeCtrlTextBuffer();
+        printIdentTmp = makeCtrlTextBuffer();
 
         idtr = tr.or(new IdNoTranslator);
         vfmt = fmt.or(new CSVValueFormatter);

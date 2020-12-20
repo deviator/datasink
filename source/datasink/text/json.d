@@ -80,7 +80,7 @@ protected:
     }
     Stack!bool needIdentStack;
 
-    AppenderBuffer idTmpOutput;
+    CtrlTextBuffer idTmpOutput;
     IdTranslator idtr;
     JsonValueFormatter vfmt;
 
@@ -215,7 +215,7 @@ public:
         idtr = tr.or(new IdNoTranslator);
         vfmt = vf.or(new JsonValueFormatter);
 
-        idTmpOutput = new AppenderBuffer;
+        idTmpOutput = makeCtrlTextBuffer();
         needIdentStack = new BaseStack!bool;
 
         this.pretty = pretty;
