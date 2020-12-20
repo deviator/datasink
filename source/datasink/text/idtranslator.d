@@ -6,13 +6,13 @@ import datasink.text.output;
 interface IdTranslator
 {
 const:
-    void translateId(TextOutput o, const ScopeStack ss, Ident id);
+    void translateId(TextBuffer o, const ScopeStack ss, Ident id);
 }
 
 class IdNoTranslator : IdTranslator
 {
 const override:
-    void translateId(TextOutput o, const ScopeStack ss, Ident id)
+    void translateId(TextBuffer o, const ScopeStack ss, Ident id)
     {
         id.visit!(
             (typeof(null)) { },
@@ -29,7 +29,7 @@ class SimpleMapIdTranslator : IdTranslator
     this(string[string] m) pure { tr = m.dup; }
 
 const override:
-    void translateId(TextOutput o, const ScopeStack ss, Ident id)
+    void translateId(TextBuffer o, const ScopeStack ss, Ident id)
     {
         id.visit!(
             (typeof(null)) { },

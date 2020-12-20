@@ -13,9 +13,35 @@ package
     import std.exception : enforce;
 }
 
-class ExampleTextDataSink : BaseDataSink
+class BaseTextDataSink : BaseDataSink
 {
 protected:
+    TextSink textSink;
+    CtrlTextBuffer temp;
+
+    override void onScopeEmpty()
+    {
+        textSink.sink(temp[]);
+        temp.clear();
+        reset();
+    }
+
+    abstract void reset();
+
+public:
+    this(TextSink ts)
+    {
+        textSink = enforce(ts, "text sink is null");
+        temp = new AppenderBuffer;
+    }
+}
+
+class ExampleTextDataSink : BaseTextDataSink
+{
+protected:
+    IdTranslator idtr;
+    ValueFormatter vfmt;
+
     bool needSeparator = false;
 
     bool needIdent() const @property
@@ -25,21 +51,17 @@ protected:
     }
     Stack!bool needIdentStack;
 
-    AppenderOutput idTmpOutput;
-    AppenderOutput output;
-    TextOutput finalOutput;
-    IdTranslator idtr;
-    ValueFormatter vfmt;
+    CtrlTextBuffer idTmpOutput;
 
-    void printValueSep() { put(output, ", "); }
-    void printIdentSep() { put(output, ": "); }
-    void printString(scope const(char[]) str) { put(output, str); }
+    void printValueSep() { put(temp, ", "); }
+    void printIdentSep() { put(temp, ": "); }
+    void printString(scope const(char[]) str) { put(temp, str); }
 
     void printIdent(Ident id)
     {
         idTmpOutput.clear();
         idtr.translateId(idTmpOutput, scopeStack, id);
-        printString(idTmpOutput.data);
+        printString(idTmpOutput[]);
         printIdentSep();
     }
 
@@ -65,15 +87,15 @@ protected:
         {
             case value: break;
             case object: case tUnion:
-                put(output, obj);
+                put(temp, obj);
                 onStartPushNeedIdent(true);
                 break;
             case aArray:
-                put(output, obj);
+                put(temp, obj);
                 onStartPushNeedIdent(false);
                 break;
             case sArray: case dArray: case tuple:
-                put(output, arr);
+                put(temp, arr);
                 onStartPushNeedIdent(false);
                 break;
             case enumEl:
@@ -106,32 +128,26 @@ protected:
                 needSeparator = true;
 
             putScopeEnd();
-            if (scopeStack.length == 1)
-            {
-                put(finalOutput, output.buffer[]);
-                output.clear();
-                reset();
-            }
         }
-    }
 
-    void reset()
-    {
-        needSeparator = false;
-        assert (enumMemberDef.isNull);
-        assert (needIdentStack.empty);
+        void reset()
+        {
+            needSeparator = false;
+            assert (enumMemberDef.isNull);
+            assert (needIdentStack.empty);
+        }
     }
     
 public:
 
-    this(TextOutput o, IdTranslator tr, ValueFormatter vf)
+    this(TextSink ts, IdTranslator tr, ValueFormatter vf)
     {
-        finalOutput = enforce(o, "output is null");
+        super(ts);
+
         idtr = tr.or(new IdNoTranslator);
         vfmt = vf.or(new SimpleValueFormatter);
 
-        output = new AppenderOutput;
-        idTmpOutput = new AppenderOutput;
+        idTmpOutput = new AppenderBuffer;
         needIdentStack = new BaseStack!bool;
     }
 
@@ -142,20 +158,20 @@ override:
         if (needSeparator) printValueSep();
 
         if (enumMemberDef.isNull)
-            vfmt.formatValue(output, scopeStack, v);
+            vfmt.formatValue(temp, scopeStack, v);
         else
         {
             auto x = enumMemberDef.get[v.get!uint].name;
-            vfmt.formatValue(output, scopeStack, Value(x));
+            vfmt.formatValue(temp, scopeStack, Value(x));
         }
     }
 }
 
 unittest
 {
-    auto ao = new AppenderOutput;
+    auto ts = new TestTextSink;
 
-    auto tds = new ExampleTextDataSink(ao, null, null);
+    auto tds = new ExampleTextDataSink(ts, null, null);
 
     auto brds = new BaseRootDataSink(tds);
 
@@ -167,13 +183,13 @@ unittest
 
     brds.putData(Foo(10, "hello"));
     import std.stdio;
-    //stderr.writeln(ao.buffer[]);
-    assert (ao.buffer[] == "{ first: 10, second: hello }");
-    ao.clear();
+    //stderr.writeln(ts[]);
+    assert (ts[] == "{ first: 10, second: hello }");
+    ts.clear();
 
     brds.putData(Foo(42, "world"));
-    assert (ao.buffer[] == "{ first: 42, second: world }");
-    ao.clear();
+    assert (ts[] == "{ first: 42, second: world }");
+    ts.clear();
 
     static struct Bar
     {
@@ -225,8 +241,8 @@ unittest
             "zz: { asdf: 1024 }, "~
             "tenum: one " ~
         "}";
-    //stderr.writeln(ao.buffer[]);
+    //stderr.writeln(ts[]);
     //stderr.writeln(expect1);
-    assert (ao.buffer[] == expect1);
-    ao.clear();
+    assert (ts[] == expect1);
+    ts.clear();
 }

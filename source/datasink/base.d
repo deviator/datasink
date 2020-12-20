@@ -1,7 +1,6 @@
 module datasink.base;
 
-import std : Rebindable, enforce;
-
+package import std : Rebindable, enforce;
 package import datasink.value;
 package import datasink.typedesc;
 package import datasink.util;
@@ -23,22 +22,16 @@ alias ScopeStack = Stack!Scope;
 
 interface DataSink
 {
+protected:
     void setScopeStack(const(ScopeStack));
+    void onPushScope();
+    void onPopScope();
+    void onScopeEmpty();
 
-    protected void onPushScope();
-    protected void onPopScope();
-
+public:
     void putValue(in Value v);
 }
 
-final class NullDataSink : DataSink
-{
-override:
-    void setScopeStack(const(ScopeStack)) { }
-    protected void onPushScope() { }
-    protected void onPopScope() { }
-    void putValue(in Value v) { }
-}
 
 abstract class BaseDataSink : DataSink
 {
@@ -46,63 +39,23 @@ protected:
     Rebindable!(const(ScopeStack)) scopeStack;
     void onSetScopeStack() { } // reset state
 
-public:
-
-override:
-    void setScopeStack(const(ScopeStack) ss)
+    override void setScopeStack(const(ScopeStack) ss)
     {
         scopeStack = enforce(ss, "scope stack is null");
         onSetScopeStack();
     }
 
-abstract:
-    protected void onPushScope();
-    protected void onPopScope();
-    void putValue(in Value v);
-}
-
-class ListDataSink : DataSink
-{
-protected:
-    DataSink[] sinks;
-
-public:
-    this(DataSink[] list) { sinks = list; }
-
-override:
-    void setScopeStack(const(ScopeStack) ss)
-    { foreach (s; sinks) s.setScopeStack(ss); }
-
-    protected void onPushScope() { foreach (s; sinks) s.onPushScope(); }
-    protected void onPopScope()  { foreach (s; sinks) s.onPopScope(); }
-
-    void putValue(in Value v)
-    { foreach (s; sinks) s.putValue(v); }
-}
-
-class EnableDataSink : DataSink
-{
-    DataSink sink;
-    ValueSrc!bool enable;
-
-    this(DataSink sink, ValueSrc!bool en=null)
+    abstract
     {
-        this.sink = enforce(sink, "sink is null");
-        enable = en.or(new class ValueSrc!bool
-                        {
-                            override bool get() const { return true; }
-                        });
+        void onPushScope();
+        void onPopScope();
+        void onScopeEmpty();
     }
 
-override:
-    void setScopeStack(const(ScopeStack) ss) { sink.setScopeStack(ss); }
-
-    protected void onPushScope() { if (enable.get()) sink.onPushScope(); }
-    protected void onPopScope()  { if (enable.get()) sink.onPopScope(); }
-
-    void putValue(in Value v)
-    { if (enable.get()) sink.putValue(v); }
+public:
+    abstract void putValue(in Value v);
 }
+
 
 abstract class RootDataSink
 {
@@ -238,6 +191,8 @@ override:
     {
         sink.onPopScope();
         scopeStack.pop();
+        if (scopeStack.empty)
+            sink.onScopeEmpty();
     }
 
     void putValue(in Value v) { sink.putValue(v); }
@@ -265,6 +220,7 @@ version (unittest)
     override:
         protected void onPushScope() { }
         protected void onPopScope() { }
+        protected void onScopeEmpty() { }
         void putValue(in Value v) { vals ~= v; }
     }
 

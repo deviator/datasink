@@ -5,66 +5,66 @@ import datasink.text.base;
 class JsonValueFormatter : ValueFormatter
 {
 const:
-    void putEscapeString(TextOutput output, scope const(char)[] str)
+    void putEscapeString(TextBuffer o, scope const(char)[] str)
     {
-        put(output, '"');
+        put(o, '"');
         foreach (dchar c; str)
         {
             switch (c)
             {
-                case 0x08: put(output, `\b`); break; // backspace
-                case 0x0C: put(output, `\f`); break; // form feed
-                case '\n': put(output, `\n`); break;
-                case '\r': put(output, `\r`); break;
-                case '\t': put(output, `\t`); break;
-                case '"':  put(output, `\"`); break;
-                case '\\': put(output, `\\`); break;
-                default:   put(output, c);    break;
+                case 0x08: put(o, `\b`); break; // backspace
+                case 0x0C: put(o, `\f`); break; // form feed
+                case '\n': put(o, `\n`); break;
+                case '\r': put(o, `\r`); break;
+                case '\t': put(o, `\t`); break;
+                case '"':  put(o, `\"`); break;
+                case '\\': put(o, `\\`); break;
+                default:   put(o, c);    break;
             }
         }
-        put(output, '"');
+        put(o, '"');
     }
 
-    void putRawBytes(TextOutput output, scope const(void)[] raw)
+    void putRawBytes(TextBuffer o, scope const(void)[] raw)
     {
         import std.base64 : Base64;
         const r = cast(ubyte[])raw;
-        put(output, '"');
-        put(output, Base64.encoder(r));
-        put(output, '"');
+        put(o, '"');
+        put(o, Base64.encoder(r));
+        put(o, '"');
     }
 
 override:
-    void formatValue(TextOutput output, const ScopeStack ss, in Value val)
+    void formatValue(TextBuffer o, const ScopeStack ss, in Value val)
     {
         FS: final switch (val.kind) with (Value.Kind)
         {
             case str:
-                putEscapeString(output, val.get!string);
+                putEscapeString(o, val.get!string);
                 break;
             case raw:
-                putRawBytes(output, val.get!(const(void)[]));
+                putRawBytes(o, val.get!(const(void)[]));
                 break;
 
             case bit:
-                put(output, cast(bool)(val.get!Bool) ? "true" : "false");
+                put(o, cast(bool)(val.get!Bool) ? "true" : "false");
                 break;
 
             case f32: case f64:
-                formattedWrite(output, "%e", val.get!double);
+                formattedWrite(o, "%e", val.get!double);
                 break;
 
             static foreach (i, k; [i8, u8, i16, u16, i32, u32, i64, u64])
             {
             case k:
-                formattedWrite(output, "%d", val.get!k);
+                formattedWrite(o, "%d", val.get!k);
                 break FS;
             }
         }
     }
 }
 
-class JsonDataSink : BaseDataSink
+class JsonDataSink : BaseTextDataSink
 {
 protected:
     bool pretty;
@@ -80,40 +80,38 @@ protected:
     }
     Stack!bool needIdentStack;
 
-    AppenderOutput idTmpOutput;
-    AppenderOutput output;
-    TextOutput finalOutput;
+    AppenderBuffer idTmpOutput;
     IdTranslator idtr;
     JsonValueFormatter vfmt;
 
-    void printNewLine() { put(output, '\n'); printOffset(); }
-    void printSpace() { put(output, ' '); }
+    void printNewLine() { put(temp, '\n'); printOffset(); }
+    void printSpace() { put(temp, ' '); }
     void printOffset()
     {
         import std : repeat, take;
-        put(output, offsetStr.repeat.take(offset));
+        put(temp, offsetStr.repeat.take(offset));
     }
 
     void printValueSep()
     {
-        put(output, ',');
+        put(temp, ',');
         if (pretty) printNewLine();
     }
 
     void printIdentSep()
     {
-        put(output, ':');
+        put(temp, ':');
         if (pretty) printSpace();
     }
 
     void printString(scope const(char[]) str)
-    { vfmt.putEscapeString(output, str); }
+    { vfmt.putEscapeString(temp, str); }
 
     void printIdent(Ident id)
     {
         idTmpOutput.clear();
         idtr.translateId(idTmpOutput, scopeStack, id);
-        printString(idTmpOutput.data);
+        printString(idTmpOutput[]);
         printIdentSep();
     }
 
@@ -140,7 +138,7 @@ protected:
         {
             if (start)
             {
-                put(output, br[0]);
+                put(temp, br[0]);
                 if (pretty)
                 {
                     offset++;
@@ -154,7 +152,7 @@ protected:
                     offset--;
                     printNewLine();
                 }
-                put(output, br[1]);
+                put(temp, br[1]);
             }
         }
 
@@ -199,38 +197,31 @@ protected:
                 needSeparator = true;
 
             putScope(false);
-            if (scopeStack.length == 1)
-            {
-                put(finalOutput, output.buffer[]);
-                output.clear();
-                reset();
-            }
         }
-    }
 
-    void reset()
-    {
-        needSeparator = false;
-        assert (enumMemberDef.isNull);
-        assert (needIdentStack.empty);
+        void reset()
+        {
+            needSeparator = false;
+            assert (enumMemberDef.isNull);
+            assert (needIdentStack.empty);
+        }
     }
     
 public:
 
-    this(TextOutput o, IdTranslator tr, JsonValueFormatter vf, bool pretty)
+    this(TextSink ts, IdTranslator tr, JsonValueFormatter vf, bool pretty)
     {
-        finalOutput = enforce(o, "output is null");
+        super(ts);
         idtr = tr.or(new IdNoTranslator);
         vfmt = vf.or(new JsonValueFormatter);
 
-        idTmpOutput = new AppenderOutput;
-        output = new AppenderOutput;
+        idTmpOutput = new AppenderBuffer;
         needIdentStack = new BaseStack!bool;
 
         this.pretty = pretty;
     }
 
-    this(TextOutput o, bool pretty=false) { this(o, null, null, pretty); }
+    this(TextSink ts, bool pretty=false) { this(ts, null, null, pretty); }
 
 override:
 
@@ -239,25 +230,25 @@ override:
         if (needSeparator) printValueSep();
 
         if (enumMemberDef.isNull)
-            vfmt.formatValue(output, scopeStack, v);
+            vfmt.formatValue(temp, scopeStack, v);
         else
         {
             auto x = enumMemberDef.get[v.get!uint].name;
-            vfmt.formatValue(output, scopeStack, Value(x));
+            vfmt.formatValue(temp, scopeStack, Value(x));
         }
     }
 }
 
 unittest
 {
-    auto ao = new AppenderOutput;
+    auto ts = new TestTextSink;
 
     auto ru = new SimpleMapIdTranslator([
         "one": "один\nраз",
         "two": "два\tраза"
     ]);
 
-    auto jds = new JsonDataSink(ao, ru, null, false);
+    auto jds = new JsonDataSink(ts, ru, null, false);
 
     auto brds = new BaseRootDataSink(jds);
 
@@ -267,8 +258,8 @@ unittest
         string two;
     }
     brds.putData(Foo(10, `hel"lo`));
-    assert (ao.buffer[] == `{"один\nраз":10,"два\tраза":"hel\"lo"}`);
-    ao.clear();
+    assert (ts[] == `{"один\nраз":10,"два\tраза":"hel\"lo"}`);
+    ts.clear();
 
     static struct Bar
     {
@@ -277,21 +268,21 @@ unittest
         string three;
     }
     brds.putData(Bar(10, [5,6,7], `hel,lo`));
-    assert (ao.buffer[] == `{"один\nраз":10,"два\tраза":[5,6,7],"three":"hel,lo"}`);
-    ao.clear();
+    assert (ts[] == `{"один\nраз":10,"два\tраза":[5,6,7],"three":"hel,lo"}`);
+    ts.clear();
 
     static struct RawHolder { const(void)[] raw; }
     const raw = cast(ubyte[])"some text";
     brds.putData(RawHolder(raw));
-    assert (ao.buffer[] == `{"raw":"c29tZSB0ZXh0"}`);
-    ao.clear();
+    assert (ts[] == `{"raw":"c29tZSB0ZXh0"}`);
+    ts.clear();
 }
 
 unittest
 {
-    auto ao = new AppenderOutput;
+    auto ts = new TestTextSink;
 
-    auto jds = new JsonDataSink(ao, true);
+    auto jds = new JsonDataSink(ts, true);
 
     auto brds = new BaseRootDataSink(jds);
 
@@ -304,8 +295,8 @@ unittest
     }
 
     brds.putData(Foo(10, "hello"));
-    assert (ao.buffer[] == "{\n  \"first\": 10,\n  \"second\": \"hello\"\n}");
-    ao.clear();
+    assert (ts[] == "{\n  \"first\": 10,\n  \"second\": \"hello\"\n}");
+    ts.clear();
 
     static struct Bar
     {
@@ -358,5 +349,5 @@ unittest
         "      ]\n    }\n  ],\n"~
         "  \"zz\": {\n    \"asdf\": 1024\n  },\n"~
         "  \"tenum\": \"one\"\n}";
-    assert(ao.buffer[] == expect1);
+    assert(ts[] == expect1);
 }
