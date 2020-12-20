@@ -5,7 +5,7 @@ import datasink.text.base;
 class JsonValueFormatter : ValueFormatter
 {
 const:
-    void putEscapeString(TextOutputRef output, scope const(char)[] str)
+    void putEscapeString(TextOutput output, scope const(char)[] str)
     {
         put(output, '"');
         foreach (dchar c; str)
@@ -25,7 +25,7 @@ const:
         put(output, '"');
     }
 
-    void putRawBytes(TextOutputRef output, scope const(void)[] raw)
+    void putRawBytes(TextOutput output, scope const(void)[] raw)
     {
         import std.base64 : Base64;
         const r = cast(ubyte[])raw;
@@ -35,7 +35,7 @@ const:
     }
 
 override:
-    void formatValue(TextOutputRef output, const ScopeStack ss, in Value val)
+    void formatValue(TextOutput output, const ScopeStack ss, in Value val)
     {
         FS: final switch (val.kind) with (Value.Kind)
         {
@@ -80,8 +80,9 @@ protected:
     }
     Stack!bool needIdentStack;
 
-    AppenderOutputRef idTmpOutput;
-    TextOutput output;
+    AppenderOutput idTmpOutput;
+    AppenderOutput output;
+    TextOutput finalOutput;
     IdTranslator idtr;
     JsonValueFormatter vfmt;
 
@@ -200,7 +201,8 @@ protected:
             putScope(false);
             if (scopeStack.length == 1)
             {
-                output.endOfBlock();
+                put(finalOutput, output.buffer[]);
+                output.clear();
                 reset();
             }
         }
@@ -217,11 +219,14 @@ public:
 
     this(TextOutput o, IdTranslator tr, JsonValueFormatter vf, bool pretty)
     {
-        output = enforce(o, "output is null");
+        finalOutput = enforce(o, "output is null");
         idtr = tr.or(new IdNoTranslator);
         vfmt = vf.or(new JsonValueFormatter);
-        idTmpOutput = new AppenderOutputRef;
+
+        idTmpOutput = new AppenderOutput;
+        output = new AppenderOutput;
         needIdentStack = new BaseStack!bool;
+
         this.pretty = pretty;
     }
 

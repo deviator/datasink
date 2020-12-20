@@ -4,23 +4,12 @@ import std : OutputRange, Appender;
 
 public import std : formattedWrite, put;
 
-alias TextOutputRef = OutputRange!char;
+alias TextOutput = OutputRange!char;
 
-interface TextOutput : TextOutputRef
-{
-    void endOfBlock();
-}
-
-class AppenderOutputRef : TextOutputRef
+class AppenderOutput : TextOutput
 {
     Appender!(char[]) buffer;
     alias buffer this;
 override:
     void put(char c) { buffer.put(c); }
-}
-
-class AppenderOutput : AppenderOutputRef, TextOutput
-{
-override:
-    void endOfBlock() {}
 }

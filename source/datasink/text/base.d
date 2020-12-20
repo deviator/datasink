@@ -25,8 +25,9 @@ protected:
     }
     Stack!bool needIdentStack;
 
-    AppenderOutputRef idTmpOutput;
-    TextOutput output;
+    AppenderOutput idTmpOutput;
+    AppenderOutput output;
+    TextOutput finalOutput;
     IdTranslator idtr;
     ValueFormatter vfmt;
 
@@ -107,7 +108,8 @@ protected:
             putScopeEnd();
             if (scopeStack.length == 1)
             {
-                output.endOfBlock();
+                put(finalOutput, output.buffer[]);
+                output.clear();
                 reset();
             }
         }
@@ -124,10 +126,12 @@ public:
 
     this(TextOutput o, IdTranslator tr, ValueFormatter vf)
     {
-        output = enforce(o, "output is null");
+        finalOutput = enforce(o, "output is null");
         idtr = tr.or(new IdNoTranslator);
         vfmt = vf.or(new SimpleValueFormatter);
-        idTmpOutput = new AppenderOutputRef;
+
+        output = new AppenderOutput;
+        idTmpOutput = new AppenderOutput;
         needIdentStack = new BaseStack!bool;
     }
 
