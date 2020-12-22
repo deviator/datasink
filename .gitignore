@@ -14,3 +14,9 @@ docs/
 *.obj
 *.lst
 dub.selections.json
+
+trace*.def
+trace*.log
+
+/example/**
+!/example/*.d

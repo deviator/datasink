@@ -8,20 +8,22 @@ const:
     void putEscapeString(TextBuffer o, scope const(char)[] str)
     {
         put(o, '"');
-        foreach (dchar c; str)
+        size_t s = 0;
+        foreach (i, dchar c; str)
         {
             switch (c)
             {
-                case 0x08: put(o, `\b`); break; // backspace
-                case 0x0C: put(o, `\f`); break; // form feed
-                case '\n': put(o, `\n`); break;
-                case '\r': put(o, `\r`); break;
-                case '\t': put(o, `\t`); break;
-                case '"':  put(o, `\"`); break;
-                case '\\': put(o, `\\`); break;
-                default:   put(o, c);    break;
+                case 0x08: o.put(str[s..i]); o.put(`\b`); s=i+1; break; // backspace
+                case 0x0C: o.put(str[s..i]); o.put(`\f`); s=i+1; break; // form feed
+                case '\n': o.put(str[s..i]); o.put(`\n`); s=i+1; break;
+                case '\r': o.put(str[s..i]); o.put(`\r`); s=i+1; break;
+                case '\t': o.put(str[s..i]); o.put(`\t`); s=i+1; break;
+                case '"':  o.put(str[s..i]); o.put(`\"`); s=i+1; break;
+                case '\\': o.put(str[s..i]); o.put(`\\`); s=i+1; break;
+                default: break;
             }
         }
+        if (s < str.length) o.put(str[s..$]);
         put(o, '"');
     }
 
@@ -47,7 +49,7 @@ override:
                 break;
 
             case bit:
-                put(o, cast(bool)(val.get!Bool) ? "true" : "false");
+                o.put(cast(bool)(val.get!Bool) ? "true" : "false");
                 break;
 
             case f32: case f64:
@@ -109,9 +111,13 @@ protected:
 
     void printIdent(Ident id)
     {
-        idTmpOutput.clear();
-        idtr.translateId(idTmpOutput, scopeStack, id);
-        printString(idTmpOutput[]);
+        if (idtr !is null)
+        {
+            idTmpOutput.clear();
+            idtr.translateId(idTmpOutput, scopeStack, id);
+            printString(idTmpOutput[]);
+        }
+        else printString(id.get!string);
         printIdentSep();
     }
 
@@ -212,10 +218,11 @@ public:
     this(TextSink ts, IdTranslator tr, JsonValueFormatter vf, bool pretty)
     {
         super(ts);
-        idtr = tr.or(new IdNoTranslator);
+        idtr = tr; // tr.or(new IdNoTranslator);
         vfmt = vf.or(new JsonValueFormatter);
 
         idTmpOutput = makeCtrlTextBuffer();
+
         needIdentStack = new BaseStack!bool;
 
         this.pretty = pretty;
@@ -241,7 +248,7 @@ override:
 
 unittest
 {
-    auto ts = new TestTextSink;
+    auto ts = new ArrayTextSink;
 
     auto ru = new SimpleMapIdTranslator([
         "one": "один\nраз",
@@ -261,6 +268,30 @@ unittest
     assert (ts[] == `{"один\nраз":10,"два\tраза":"hel\"lo"}`);
     ts.clear();
 
+    brds.putData(Foo(10, ``));
+    assert (ts[] == `{"один\nраз":10,"два\tраза":""}`);
+    ts.clear();
+
+    brds.putData(Foo(10, `""`));
+    assert (ts[] == `{"один\nраз":10,"два\tраза":"\"\""}`);
+    ts.clear();
+
+    brds.putData(Foo(10, `"привет"`));
+    assert (ts[] == `{"один\nраз":10,"два\tраза":"\"привет\""}`);
+    ts.clear();
+
+    brds.putData(Foo(10, `привет"`));
+    assert (ts[] == `{"один\nраз":10,"два\tраза":"привет\""}`);
+    ts.clear();
+
+    brds.putData(Foo(10, "\n\tё\n\tж\n"));
+    assert (ts[] == `{"один\nраз":10,"два\tраза":"\n\tё\n\tж\n"}`);
+    ts.clear();
+
+    brds.putData(Foo(10, "ё\n\tж\n"));
+    assert (ts[] == `{"один\nраз":10,"два\tраза":"ё\n\tж\n"}`);
+    ts.clear();
+
     static struct Bar
     {
         int one;
@@ -278,27 +309,15 @@ unittest
     ts.clear();
 }
 
-unittest
+version (unittest)
 {
-    auto ts = new TestTextSink;
-
-    auto jds = new JsonDataSink(ts, true);
-
-    auto brds = new BaseRootDataSink(jds);
-
-    import std.stdio;
-
-    static struct Foo
+    struct Foo
     {
         int first;
         string second;
     }
 
-    brds.putData(Foo(10, "hello"));
-    assert (ts[] == "{\n  \"first\": 10,\n  \"second\": \"hello\"\n}");
-    ts.clear();
-
-    static struct Bar
+    struct Bar
     {
         ubyte[][] bytes;
         string name;
@@ -311,23 +330,23 @@ unittest
         two = "TWO"
     }
 
-    static struct Baz
+    struct Baz
     {
         Bar[] bars;
         int[string] zz;
         TEnum tenum;
     }
 
-    brds.putData(Baz(
+    enum baz1 = Baz(
         [
             Bar([[1],[1,2],[3]], "N1", [Foo(10, "hello"), Foo(42, "world")]),
             Bar([[6,5],[5],[6]], "21", [Foo(33, "bravo"), Foo(77, "zzzzz")]),
         ],
         [ "asdf": 1024 ],
         TEnum.one
-    ));
+    );
 
-    enum expect1 = 
+    enum baz1_js_pretty = 
         "{\n  \"bars\": [\n"~
         "    {\n      \"bytes\": [\n"~
         "        [\n          1\n        ],\n"~
@@ -349,5 +368,92 @@ unittest
         "      ]\n    }\n  ],\n"~
         "  \"zz\": {\n    \"asdf\": 1024\n  },\n"~
         "  \"tenum\": \"one\"\n}";
-    assert(ts[] == expect1);
+        
+    enum baz1_js = 
+        `{"bars":[{"bytes":[[1],[1,2],[3]],"name":"N1",`~
+                  `"foos":[{"first":10,"second":"hello"},`~
+                          `{"first":42,"second":"world"}]},`~
+                 `{"bytes":[[6,5],[5],[6]],"name":"21",`~
+                  `"foos":[{"first":33,"second":"bravo"},`~
+                          `{"first":77,"second":"zzzzz"}]}],`~
+        `"zz":{"asdf":1024},"tenum":"one"}`;
+}
+
+unittest
+{
+    auto ts = new ArrayTextSink;
+
+    auto jds = new JsonDataSink(ts, true);
+
+    auto brds = new BaseRootDataSink(jds);
+
+    import std.stdio;
+
+    brds.putData(Foo(10, "hello"));
+    assert (ts[] == "{\n  \"first\": 10,\n  \"second\": \"hello\"\n}");
+    ts.clear();
+
+    auto bzz = baz1;
+
+    brds.putData(bzz);
+
+    assert(ts[] == baz1_js_pretty);
+
+    ts.clear();
+
+}
+
+unittest
+{
+    import core.memory : GC;
+    import std.stdio;
+    import std.datetime;
+
+    auto bzz = baz1;
+
+    auto tts = new ArrayTextSink;
+    auto jds = new JsonDataSink(tts);
+    auto brds = new BaseRootDataSink(jds);
+
+    enum N = 100;
+
+    //static immutable dsc = makeTypeDsc!Baz;
+
+    Duration test()
+    {
+        Duration d;
+        foreach (i; 0 .. N)
+        {
+            const start = Clock.currTime;
+
+            brds.putData(bzz);
+
+            //brds.scopeStack.push(Scope(dsc, Ident("hello")));
+            //brds.scopeStack.pop();
+
+            d += Clock.currTime - start;
+            assert (tts[] == baz1_js);
+            tts.clear();
+        }
+        return d / N;
+    }
+
+    test(); // allocate buffers
+
+    foreach (i; 0 .. 10)
+    {
+        const stats = GC.stats;
+        auto tm = test();
+        const diff = cast(ptrdiff_t)GC.stats.usedSize - cast(ptrdiff_t)stats.usedSize;
+        //writeln(tm);
+
+        assert (diff == 0, "memory allocate at equal repeat put");
+
+        enum Y="\033[33m";
+        enum G="\033[32m";
+        enum R="\033[31m";
+        enum X="\033[0m";
+        //writeln(diff > 0 ? R : diff < 0 ? Y : G, diff, X, " ( ",
+        //        stats.usedSize, " -> ", GC.stats.usedSize, " )");
+    }
 }

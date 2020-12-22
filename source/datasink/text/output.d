@@ -5,7 +5,13 @@ import std : OutputRange, Appender;
 public import std : formattedWrite, put;
 
 ///
-alias TextBuffer = OutputRange!char;
+interface TextBuffer:
+    OutputRange!char,
+    OutputRange!(const(char[]))
+{
+    void put(char c);
+    void put(const(char[]) c);
+}
 
 ///
 interface CtrlTextBuffer : TextBuffer
@@ -15,25 +21,43 @@ interface CtrlTextBuffer : TextBuffer
 }
 
 ///
-class AppenderBuffer : CtrlTextBuffer
+class ArrayTextBuffer : CtrlTextBuffer
 {
-    Appender!(char[]) buffer;
+    char[] buffer;
+    size_t cur;
+    this(size_t reserve=32) { buffer.length = reserve > 4 ? reserve : 4; }
 override:
-    void clear() { buffer.clear(); }
-    scope const(char)[] opIndex() const { return buffer[]; }
-    void put(char c) { buffer.put(c); }
+    void clear() { cur = 0; }
+    scope const(char)[] opIndex() const { return buffer[0..cur]; }
+    void put(char c)
+    {
+        buffer[cur++] = c;
+        if (cur == buffer.length) buffer.length *= 2;
+    }
+    void put(const(char[]) c)
+    {
+        if (cur + c.length >= buffer.length)
+            buffer.length += buffer.length > c.length ? buffer.length : c.length;
+        buffer[cur..cur+c.length] = c[];
+        cur += c.length;
+    }
 }
 
 /// for full builded text output by one call
 interface TextSink { void sink(scope const(char)[]); }
 
-version (unittest)
+class ArrayTextSink : TextSink
 {
-    class TestTextSink : TextSink
-    {
-        string str;
-        string opIndex() const { return str; }
-        void clear() { str.length = 0; }
-        override void sink(scope const(char)[] ch) { str ~= ch.idup; }
-    }
+    import std.algorithm : max;
+    ArrayTextBuffer buffer;
+    this() { buffer = new ArrayTextBuffer(512); }
+    void reserve(size_t cap) { buffer.buffer.length = max(buffer.buffer.length, cap); }
+    scope const(char)[] opIndex() const { return buffer[]; }
+    void clear() { buffer.clear(); }
+    override void sink(scope const(char)[] s) { buffer.put(s); }
+}
+
+class NullTextSink : TextSink
+{
+    override void sink(scope const(char)[] s) { }
 }

@@ -32,6 +32,17 @@ public:
     void putValue(in Value v);
 }
 
+version (unittest)
+class PublicDataSink
+{
+    DataSink sink;
+    this(DataSink s) { sink = enforce(s, "null sink"); }
+    void setScopeStack(const(ScopeStack) ss) { sink.setScopeStack(ss); }
+    void onPushScope() { sink.onPushScope(); }
+    void onPopScope() { sink.onPopScope(); }
+    void onScopeEmpty() { sink.onScopeEmpty(); }
+    void putValue(in Value v) { sink.putValue(v); }
+}
 
 abstract class BaseDataSink : DataSink
 {
@@ -96,7 +107,8 @@ abstract class RootDataSink
             tmpIdent.nullify();
         }
 
-        auto _ = scopeGuard(Scope(makeTypeDsc!T, id));
+        static immutable tdsc = makeTypeDsc!T;
+        auto _ = scopeGuard(Scope(tdsc, id));
 
         static if (is(T == enum) && !is(T == Bool))
         {

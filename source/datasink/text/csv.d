@@ -43,10 +43,12 @@ class CSVValueFormatter : ValueFormatter
      +/
     IdTranslator idTranslator;
 
-    this()
+    this(scope CtrlTextBuffer delegate() makeBuffer)
     {
-        valueTmp = new AppenderBuffer;
-        escapeTmp = new AppenderBuffer;
+        if (makeBuffer is null)
+            makeBuffer = () => new ArrayTextBuffer;
+        valueTmp = makeBuffer();
+        escapeTmp = makeBuffer();
     }
 
 override:
@@ -64,7 +66,6 @@ override:
             const bv = cast(bool)v.get!Bool;
             if (idTranslator !is null)
                 idTranslator.translateId(valueTmp, ss, Ident(bv ? "true" : "false"));
-                //put(valueTmp, idTranslator.translateId(ss, bv ? "true" : "false"));
             else formattedWrite(valueTmp, "%s", bv);
         }
         else
@@ -107,10 +108,10 @@ protected:
         }
 
         if (scopeStack.length >= 1)
-            print(scopeStack.data[1].id);
+            print(scopeStack[][1].id);
 
-        if (scopeStack.data.length > 1)
-            foreach (i, s; scopeStack.data[2..$])
+        if (scopeStack.length > 1)
+            foreach (i, s; scopeStack[][2..$])
             {
                 put(printIdentTmp, vfmt.idJoiner);
                 print(s.id);
@@ -164,7 +165,7 @@ public:
         printIdentTmp = makeCtrlTextBuffer();
 
         idtr = tr.or(new IdNoTranslator);
-        vfmt = fmt.or(new CSVValueFormatter);
+        vfmt = fmt.or(new CSVValueFormatter(&makeCtrlTextBuffer));
         vfmt.idTranslator = idtr;
     }
 
@@ -183,7 +184,7 @@ override:
 
 unittest
 {
-    auto ts = new TestTextSink;
+    auto ts = new ArrayTextSink;
 
     auto ru = new SimpleMapIdTranslator([
         "one": "один раз",
@@ -193,7 +194,7 @@ unittest
         "false": "нет"
     ]);
 
-    auto fmt = new CSVValueFormatter;
+    auto fmt = new CSVValueFormatter(null);
     fmt.idJoiner = "->";
 
     auto ds = new CSVDataSink(ts, ru, fmt);

@@ -30,7 +30,7 @@ protected:
 
     CtrlTextBuffer makeCtrlTextBuffer()
     {
-        return new AppenderBuffer;
+        return new ArrayTextBuffer;
     }
 
 public:
@@ -174,7 +174,7 @@ override:
 
 unittest
 {
-    auto ts = new TestTextSink;
+    auto ts = new ArrayTextSink;
 
     auto tds = new ExampleTextDataSink(ts, null, null);
 

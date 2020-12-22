@@ -28,32 +28,41 @@ interface Stack(T)
     void pop();
 
 const @property:
-    final bool empty() { return length == 0; }
-    size_t length();
-    ref const(T) top();
-    const(T[]) data();
+    scope const(T[]) opIndex();
+final:
+    bool empty() { return length == 0; }
+    size_t length() { return opIndex().length; }
+    ref const(T) top()
+    {
+        assert (!empty, "stack is empty");
+        return this[][$-1];
+    }
 }
 
 class BaseStack(T) : Stack!T
 {
-    T[] _data;
+    T[] data;
+    ptrdiff_t cur;
 
-    this(size_t reserve=64) { _data.reserve = reserve; }
+    this(size_t reserve=64) { data.length = reserve; }
 
 override:
 
-    void push(T v) { _data ~= v; }
+    void push(T v)
+    {
+        data[cur++] = v;
+        if (cur == data.length)
+            data.length *= 2;
+    }
 
     void pop()
     {
         assert (!empty, "stack is empty");
-        _data.length--;
+        cur--;
     }
 
 const @property:
-    size_t length() { return _data.length; }
-    ref const(T) top() { return _data[$-1]; }
-    const(T[]) data() { return _data; }
+    scope const(T[]) opIndex() { return data[0..cur]; }
 }
 
 /++
@@ -61,3 +70,31 @@ const @property:
     some = a.or(new Some);
  +/
 auto or(A,B)(A a, B b) { return a !is null ? a : b; }
+
+
+unittest
+{
+    auto bs = new BaseStack!uint(128);
+
+    import core.memory : GC;
+
+    bool noAllocs(in GC.Stats f, in GC.Stats s)
+    { return (s.usedSize - f.usedSize) == 0; }
+
+    const stats = GC.stats;
+    foreach (i; 0 .. 100) bs.push(i);
+    assert (noAllocs(stats, GC.stats));
+    foreach_reverse (i; 0 .. 100)
+    {
+        assert (bs.top == i);
+        bs.pop();
+    }
+    foreach (i; 0 .. 100) bs.push(i);
+    assert (noAllocs(stats, GC.stats));
+    foreach_reverse (i; 0 .. 100)
+    {
+        assert (bs.top == i);
+        bs.pop();
+    }
+    assert (noAllocs(stats, GC.stats));
+}
