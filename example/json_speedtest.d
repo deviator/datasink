@@ -1,6 +1,7 @@
 /+ dub.sdl:
     dependency "datasink" path=".."
     dependency "vibe-d:data" version="0.9.3-beta.1"
+    dependency "asdf" version="0.7.5"
  +/
 
 import core.memory : GC;
@@ -11,7 +12,6 @@ import std.array : Appender;
 import datasink;
 import datasink.text.output;
 import datasink.text.json;
-import vibe.data.json;
 
 struct Foo
 {
@@ -99,14 +99,13 @@ void fnc1()
 
 void fnc2()
 {
-    import std.range;
-    import std.array;
+    import vibe.data.json;
 
     auto bzz = baz1;
 
     auto tts = new ArrayTextSink;
     auto buf0 = new ArrayTextBuffer;
-    Duration test2()
+    Duration test()
     {
         Duration d;
         foreach (i; 0 .. N)
@@ -120,14 +119,48 @@ void fnc2()
         }
         return d / N;
     }
-    test2();
+    test();
 
     writeln("vibe.data.json");
 
     foreach (i; 0 .. K)
     {
         const stats = GC.stats;
-        auto tm = test2();
+        auto tm = test();
+        const diff = cast(ptrdiff_t)GC.stats.usedSize - cast(ptrdiff_t)stats.usedSize;
+        write(tm);
+        writeln(" | memdiff: ", diff > 0 ? R : diff < 0 ? Y : G, diff, X, " ( ",
+                stats.usedSize, " -> ", GC.stats.usedSize, " )");
+    }
+}
+
+void fnc3()
+{
+    import asdf;
+
+    auto bzz = baz1;
+
+    auto tts = new ArrayTextSink;
+    Duration test()
+    {
+        Duration d;
+        foreach (i; 0 .. N)
+        {
+            const start = Clock.currTime;
+            tts.sink(serializeToJson(bzz));
+            d += Clock.currTime - start;
+            tts.clear();
+        }
+        return d / N;
+    }
+    test();
+
+    writeln("asdf");
+
+    foreach (i; 0 .. K)
+    {
+        const stats = GC.stats;
+        auto tm = test();
         const diff = cast(ptrdiff_t)GC.stats.usedSize - cast(ptrdiff_t)stats.usedSize;
         write(tm);
         writeln(" | memdiff: ", diff > 0 ? R : diff < 0 ? Y : G, diff, X, " ( ",
@@ -139,4 +172,5 @@ void main()
 {
     fnc1();
     fnc2();
+    fnc3();
 }
