@@ -27,7 +27,7 @@ struct ObjectDsc
 
     string      name; // name of struct
     FieldDsc[]  fields;
-    bool        extendable; // for dynamic append fields
+    bool        extendable = true; // for dynamic append fields
 }
 
 struct TupleDsc { ValueDsc[] elems; }
