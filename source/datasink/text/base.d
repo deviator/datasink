@@ -48,6 +48,7 @@ protected:
     ValueFormatter vfmt;
 
     bool needSeparator = false;
+    bool skipValue = false;
 
     bool needIdent() const @property
     {
@@ -127,10 +128,13 @@ protected:
         void onPopScope()
         {
             const topid = scopeStack.top.id;
-            if (topid.kind == Ident.Kind.aadata && topid.get!AAData == AAData.key)
+            if (topid.kind == Ident.Kind.aaKey)
                 printIdentSep();
             else
-                needSeparator = true;
+            {
+                if (skipValue) skipValue = false;
+                else needSeparator = true;
+            }
 
             putScopeEnd();
         }
@@ -160,6 +164,12 @@ override:
 
     void putValue(in Value v)
     {
+        if (scopeStack.top.id.kind == Ident.Kind.length)
+        {
+            skipValue = true;
+            return;
+        }
+
         if (needSeparator) printValueSep();
 
         if (enumMemberDef.isNull)

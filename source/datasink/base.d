@@ -5,12 +5,18 @@ package import datasink.value;
 package import datasink.typedesc;
 package import datasink.util;
 
-enum AAData { key, value }
+struct AAKey { }
+struct AAValue { }
+struct ArrayLength { }
 
 alias Ident = TaggedVariant!(
-    ["none",     "name",  "index", "aadata"],
-    typeof(null), string,  ulong,   AAData,
+    ["none",     "name",  "index", "aaKey", "aaValue", "length"],
+    typeof(null), string,  ulong,   AAKey,   AAValue,  ArrayLength
 );
+
+const AAKeyIdent = Ident(AAKey.init);
+const AAValueIdent = Ident(AAValue.init);
+const ArrayLengthIdent = Ident(ArrayLength.init);
 
 struct Scope
 {
@@ -89,8 +95,9 @@ abstract class RootDataSink
 
     final void putData(V)(in V val, Ident id=Ident(null))
     {
-        import std : Unqual, isArray, isAssociativeArray,
-                     isSomeString, ElementType;
+        import std : Unqual, isArray, isDynamicArray,
+                     isAssociativeArray, isSomeString,
+                     ElementType;
         alias T = Unqual!V;
 
         uint getEnumIndex(E)(E e) if (is(E == enum))
@@ -119,6 +126,8 @@ abstract class RootDataSink
                   !isSomeString!T &&
                   !is(Unqual!(ElementType!T) == void))
         {
+            static if (isDynamicArray!T)
+                putData(cast(ulong)val.length, ArrayLengthIdent);
             foreach (i, v; val) putData(v, Ident(i));
         }
         else
@@ -134,10 +143,11 @@ abstract class RootDataSink
         else
         static if (isAssociativeArray!T)
         {
+            putData(cast(ulong)val.length, ArrayLengthIdent);
             foreach (k, v; val)
             {
-                putData(k, Ident(AAData.key));
-                putData(v, Ident(AAData.value));
+                putData(k, AAKeyIdent);
+                putData(v, AAValueIdent);
             }
         }
         else
@@ -375,6 +385,8 @@ unittest
             assert (tss.history[p].dsc.kind == TypeDsc.Kind.dArray);
             assert (tss.history[p].id == Ident("foos"));
             p++;
+                assert (tss.history[p].id == ArrayLengthIdent);
+                p++;
                 assert (tss.history[p].dsc.kind == TypeDsc.Kind.enumEl);
                 assert (tss.history[p].id == Ident(0));
                 p++;
@@ -382,9 +394,9 @@ unittest
                 assert (tss.history[p].id == Ident(1));
                 p++;
         assert (tss.history.length == p);
-        assert (ds.vals.length == 2);
+        assert (ds.vals.length == 3);
 
-        assert (ds.vals == [Value(0U), Value(1U)]); // index of 'one' and 'two'
+        assert (ds.vals == [Value(2UL), Value(0U), Value(1U)]); // index of 'one' and 'two'
     }
 
     {
@@ -404,6 +416,8 @@ unittest
                 assert (tss.history[p].dsc.kind == TypeDsc.Kind.dArray);
                 assert (tss.history[p].id == Ident("fs"));
                 p++;
+                    assert (tss.history[p].id == ArrayLengthIdent);
+                    p++;
                     assert (tss.history[p].dsc.kind == TypeDsc.Kind.enumEl);
                     assert (tss.history[p].id == Ident(0));
                     p++;
@@ -419,8 +433,10 @@ unittest
                 assert (tss.history[p].dsc.kind == TypeDsc.Kind.dArray);
                 assert (tss.history[p].id == Ident("fs"));
                 p++;
+                    assert (tss.history[p].id == ArrayLengthIdent);
+                    p++;
         assert (tss.history.length == p);
-        assert (ds.vals == [Value(0U), Value(0U), Value(1U)]);
+        assert (ds.vals == [Value(3UL), Value(0U), Value(0U), Value(1U), Value(0UL)]);
     }
 
     assert (tss.empty);

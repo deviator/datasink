@@ -175,6 +175,8 @@ override:
 
     void putValue(in Value v)
     {
+        if (scopeStack.top.id.kind == Ident.Kind.length) return;
+
         if (needSeparator) printValueSep();
         printIdent();
         vfmt.formatValue(dataBuffer, scopeStack, v);

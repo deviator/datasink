@@ -16,9 +16,11 @@ const override:
     {
         id.visit!(
             (typeof(null)) { },
-            (string name) { put(o, name); },
+            (string name) { o.put(name); },
             (ulong index) { formattedWrite(o, "[%d]", index); },
-            (AAData aa) { formattedWrite(o, "%s", aa==AAData.key ? "key" : "val"); }
+            (AAKey _) { o.put("key"); },
+            (AAValue _) { o.put("val"); },
+            (ArrayLength _) { o.put("len"); }
         );
     }
 }
@@ -35,12 +37,9 @@ const override:
             (typeof(null)) { },
             (string name) { put(o, tr.get(name, name)); },
             (ulong index) { formattedWrite(o, "[%d]", index); },
-            (AAData aa)
-            {
-                formattedWrite(o, "%s",
-                    aa==AAData.key ? tr.get("key", "key") :
-                                     tr.get("val", "val"));
-            }
+            (AAKey _) { o.put(tr.get("key", "key")); },
+            (AAValue _) { o.put(tr.get("val", "val")); },
+            (ArrayLength _) { o.put(tr.get("len", "len")); }
         );
     }
 }
