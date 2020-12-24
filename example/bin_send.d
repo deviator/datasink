@@ -71,7 +71,7 @@ override:
     }
     void putLength(ulong l) { addMsg(Msg(Length(l))); }
     void putValue(in Value v) { addMsg(Msg(v)); }
-    void putEnum(in EnumDsc dsc, ulong i) { addMsg(Msg(EnumVal(EnumDsc(dsc.def.dup), i))); }
+    void putEnum(in EnumDsc dsc, ulong i) { addMsg(Msg(EnumVal(EnumDsc(dsc.members.dup), i))); }
 }
 
 class BinReader
