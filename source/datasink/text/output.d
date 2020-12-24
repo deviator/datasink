@@ -36,10 +36,10 @@ override:
     }
     void put(const(char[]) c)
     {
-        if (cur + c.length >= buffer.length)
-            buffer.length += buffer.length > c.length ? buffer.length : c.length;
-        buffer[cur..cur+c.length] = c[];
-        cur += c.length;
+        const ne = cur + c.length;
+        while (ne >= buffer.length) buffer.length *= 2;
+        buffer[cur..ne] = c[]; // equal by speed with memcpy
+        cur = ne;
     }
 }
 

@@ -39,6 +39,13 @@ public:
         textSink = enforce(ts, "text sink is null");
         temp = makeCtrlTextBuffer();
     }
+
+override:
+    void putEnum(in EnumDsc dsc, ulong i)
+    {
+        auto x = dsc.def[i].name;
+        putValue(Value(x));
+    }
 }
 
 class ExampleTextDataSink : BaseTextDataSink
@@ -71,12 +78,6 @@ protected:
         printIdentSep();
     }
 
-    import std : Rebindable;
-
-    alias EnumMemberDef = Nullable!(Rebindable!(const(EnumDsc.MemberDsc[])));
-
-    EnumMemberDef enumMemberDef;
-
     ref const(Scope) scopeStackTop() const { return scopeStack.top; }
 
     void putScopeStrings(bool start, string obj, string arr)
@@ -104,10 +105,7 @@ protected:
                 put(temp, arr);
                 onStartPushNeedIdent(false);
                 break;
-            case enumEl:
-                if (!start) enumMemberDef.nullify; 
-                else enumMemberDef = scopeStackTop.dsc.get!EnumDsc.def;
-                break;
+            case enumEl: break;
         }
     }
 
@@ -142,7 +140,6 @@ protected:
         void reset()
         {
             needSeparator = false;
-            assert (enumMemberDef.isNull);
             assert (needIdentStack.empty);
         }
     }
@@ -162,23 +159,12 @@ public:
 
 override:
 
+    void putLength(ulong l) { }
+
     void putValue(in Value v)
     {
-        if (scopeStack.top.id.kind == Ident.Kind.length)
-        {
-            skipValue = true;
-            return;
-        }
-
         if (needSeparator) printValueSep();
-
-        if (enumMemberDef.isNull)
-            vfmt.formatValue(temp, scopeStack, v);
-        else
-        {
-            auto x = enumMemberDef.get[v.get!uint].name;
-            vfmt.formatValue(temp, scopeStack, Value(x));
-        }
+        vfmt.formatValue(temp, scopeStack, v);
     }
 }
 

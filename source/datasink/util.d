@@ -29,8 +29,8 @@ interface Stack(T)
 
 const @property:
     scope const(T[]) opIndex();
+    bool empty();
 final:
-    bool empty() { return length == 0; }
     size_t length() { return opIndex().length; }
     ref const(T) top()
     {
@@ -57,11 +57,12 @@ override:
 
     void pop()
     {
-        assert (!empty, "stack is empty");
+        assert (cur, "stack is empty");
         cur--;
     }
 
 const @property:
+    bool empty() { return cur == 0; }
     scope const(T[]) opIndex() { return data[0..cur]; }
 }
 

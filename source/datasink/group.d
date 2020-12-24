@@ -13,7 +13,9 @@ protected:
     void onScopeEmpty() { }
 
 public:
+    void putLength(ulong l) { }
     void putValue(in Value v) { }
+    void putEnum(in EnumDsc dsc, ulong i) { }
 }
 
 class ListDataSink : DataSink
@@ -32,7 +34,10 @@ protected:
     void onScopeEmpty() { foreach (s; sinks) s.onScopeEmpty(); }
 
 public:
+    void putLength(ulong l) { foreach (s; sinks) s.putLength(l); }
     void putValue(in Value v) { foreach (s; sinks) s.putValue(v); }
+    void putEnum(in EnumDsc dsc, ulong i)
+    { foreach (s; sinks) s.putEnum(dsc, i); }
 }
 
 class EnableDataSink : DataSink
@@ -56,5 +61,8 @@ override:
     protected void onPopScope()   { if (enable.get()) sink.onPopScope(); }
     protected void onScopeEmpty() { if (enable.get()) sink.onScopeEmpty(); }
 
+    void putLength(ulong l) { if (enable.get()) sink.putLength(l); }
     void putValue(in Value v) { if (enable.get()) sink.putValue(v); }
+    void putEnum(in EnumDsc dsc, ulong i)
+    { if (enable.get()) sink.putEnum(dsc, i); }
 }

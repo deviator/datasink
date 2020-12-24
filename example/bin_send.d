@@ -9,9 +9,17 @@ import std.stdio;
 import sbin;
 import datasink;
 
+alias Length = ulong;
+
+struct EnumVal
+{
+    EnumDsc dsc;
+    ulong index;
+}
+
 alias Msg = TaggedVariant!(
-    ["popScope",   "pushScope", "value"],
-      int,         Scope,       Value
+    ["popScope",   "pushScope", "value", "length", "enumVal"],
+      int,          Scope,       Value,   Length,   EnumVal
 );
 
 class BinSenderRDS : RootDataSink
@@ -61,7 +69,9 @@ override:
             resetBuffer();
         }
     }
+    void putLength(ulong l) { addMsg(Msg(Length(l))); }
     void putValue(in Value v) { addMsg(Msg(v)); }
+    void putEnum(in EnumDsc dsc, ulong i) { addMsg(Msg(EnumVal(EnumDsc(dsc.def.dup), i))); }
 }
 
 class BinReader
@@ -79,7 +89,9 @@ class BinReader
             msg.visit!(
                 (int)     { rds.popScope(); },
                 (Scope s) { rds.pushScope(s); },
-                (Value v) { rds.putValue(v); }
+                (Value v) { rds.putValue(v); },
+                (Length l) { rds.putLength(l); },
+                (EnumVal v) { rds.putEnum(v.dsc, v.index); }
             );
     }
 }
@@ -108,12 +120,13 @@ void main()
         ubyte[][] bytes;
         string name;
         Foo[] foos;
+        string[string] aa;
     }
 
     auto bars = [
-        Bar([[1],[1,2],[3]], "N1", [Foo(10, "hello"), Foo(42, "world")]),
-        Bar([[2],[4,6],[8]], "N2", [Foo(12, "alpha"), Foo(40, "betta")]),
-        Bar([[3],[5,7],[9]], "N3", [Foo(14, "текст"), Foo(38, "слова")]),
+        Bar([[1],[1,2],[3]], "N1", [Foo(10, "hel\nlo"), Foo(42, "world")], ["ok":"da", "12":"21"]),
+        Bar([[2],[4,6],[8]], "N2", [Foo(12, "alpha"), Foo(40, "betta")], ["no":"ad", "13":"31"]),
+        Bar([[3],[5,7],[9]], "N3", [Foo(14, "текст"), Foo(38, "слова")], ["00":"11", "32":"23"]),
     ];
 
     foreach (bar; bars)
@@ -121,6 +134,8 @@ void main()
         enforce (data.length == 0);
         snd.putData(bar);
         enforce (data.length != 0);
+        writeln("data: ", data.length);
+        writeln("sbin: ", sbinSerialize(bar).length);
 
         rdr.read(data);
         data = [];
@@ -141,7 +156,7 @@ void main()
     {
         // send not exist type
         {
-            auto _ = snd.scopeGuard(Scope(TypeDsc(ObjectDsc("X"))));
+            auto _ = snd.scopeGuard(Scope(TypeDsc(ObjectDsc.init)));
             snd.setTmpIdent(Ident("ts"));
             snd.putData(Clock.currStdTime);
 

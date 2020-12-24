@@ -17,6 +17,7 @@ dub.selections.json
 
 trace*.def
 trace*.log
+*callgrind*
 
 /example/**
 !/example/*.d

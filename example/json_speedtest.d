@@ -29,14 +29,15 @@ struct Bar
 enum TEnum
 {
     one = "ONE",
-    two = "TWO"
+    two = "TWO",
+    three = "TRE",
 }
 
 struct Baz
 {
     Bar[] bars;
     int[string] zz;
-    TEnum tenum;
+    TEnum[] tenum;
 }
 
 enum baz1 = Baz(
@@ -53,7 +54,7 @@ enum baz1 = Baz(
         Bar([[1],[1],[2],[3]], "N9", [Foo(10, "\nп\tр\"е\nт"), Foo(42, "\nм\tи\\р\"")]),
     ],
     [ "a\"s\nd\tf": 1024, "привет мир": 64, "": 32 ],
-    TEnum.one
+    [ TEnum.one, TEnum.two, TEnum.one, TEnum.one, TEnum.two, TEnum.three ]
 );
 
 enum N = 100;
@@ -85,7 +86,10 @@ void fnc1()
         return d / N;
     }
 
-    test(); // allocate buffers
+    writeln("datasink");
+
+    const s1 = GC.stats;
+    writeln("allocate: ", test(), " | ", cast(ptrdiff_t)GC.stats.usedSize - s1.usedSize);
 
     foreach (i; 0 .. K)
     {
@@ -119,18 +123,20 @@ void fnc2()
         }
         return d / N;
     }
-    test();
 
     writeln("vibe.data.json");
+    const s1 = GC.stats;
+    writeln("allocate: ", test(), " | ", cast(ptrdiff_t)GC.stats.usedSize - s1.usedSize);
 
     foreach (i; 0 .. K)
     {
         const stats = GC.stats;
         auto tm = test();
-        const diff = cast(ptrdiff_t)GC.stats.usedSize - cast(ptrdiff_t)stats.usedSize;
+        const stats2 = GC.stats;
+        const diff = cast(ptrdiff_t)stats2.usedSize - cast(ptrdiff_t)stats.usedSize;
         write(tm);
         writeln(" | memdiff: ", diff > 0 ? R : diff < 0 ? Y : G, diff, X, " ( ",
-                stats.usedSize, " -> ", GC.stats.usedSize, " )");
+                stats.usedSize, " -> ", stats2.usedSize, " )");
     }
 }
 
@@ -161,16 +167,17 @@ void fnc3()
     {
         const stats = GC.stats;
         auto tm = test();
-        const diff = cast(ptrdiff_t)GC.stats.usedSize - cast(ptrdiff_t)stats.usedSize;
+        const stats2 = GC.stats;
+        const diff = cast(ptrdiff_t)stats2.usedSize - cast(ptrdiff_t)stats.usedSize;
         write(tm);
         writeln(" | memdiff: ", diff > 0 ? R : diff < 0 ? Y : G, diff, X, " ( ",
-                stats.usedSize, " -> ", GC.stats.usedSize, " )");
+                stats.usedSize, " -> ", stats2.usedSize, " )");
     }
 }
 
 void main()
 {
-    fnc1();
     fnc2();
+    fnc1();
     fnc3();
 }

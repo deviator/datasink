@@ -28,7 +28,10 @@ class CSVValueFormatter : ValueFormatter
                 e = true;
                 continue;
             }
-            else if (c == delimiter || c == ' ') e = true;
+            else if (c == delimiter ||
+                     c == ' ' ||
+                     c == '\n'
+                     ) e = true;
 
             put(escapeTmp, c);
         }
@@ -173,10 +176,10 @@ public:
 
 override:
 
+    void putLength(ulong l) { }
+
     void putValue(in Value v)
     {
-        if (scopeStack.top.id.kind == Ident.Kind.length) return;
-
         if (needSeparator) printValueSep();
         printIdent();
         vfmt.formatValue(dataBuffer, scopeStack, v);

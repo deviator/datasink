@@ -7,16 +7,14 @@ package import datasink.util;
 
 struct AAKey { }
 struct AAValue { }
-struct ArrayLength { }
 
 alias Ident = TaggedVariant!(
-    ["none",     "name",  "index", "aaKey", "aaValue", "length"],
-    typeof(null), string,  ulong,   AAKey,   AAValue,  ArrayLength
+    ["none",     "name",  "index", "aaKey", "aaValue"],
+    typeof(null), string,  ulong,   AAKey,   AAValue
 );
 
 const AAKeyIdent = Ident(AAKey.init);
 const AAValueIdent = Ident(AAValue.init);
-const ArrayLengthIdent = Ident(ArrayLength.init);
 
 struct Scope
 {
@@ -35,7 +33,10 @@ protected:
     void onScopeEmpty();
 
 public:
+    /// put dynamic and associative arrays length before values
+    void putLength(ulong ln);
     void putValue(in Value v);
+    void putEnum(in EnumDsc dsc, ulong i);
 }
 
 version (unittest)
@@ -47,7 +48,10 @@ class PublicDataSink
     void onPushScope() { sink.onPushScope(); }
     void onPopScope() { sink.onPopScope(); }
     void onScopeEmpty() { sink.onScopeEmpty(); }
+
+    void putLength(ulong l) { sink.putLength(l); }
     void putValue(in Value v) { sink.putValue(v); }
+    void putEnum(in EnumDsc dsc, ulong i) { sink.putEnum(dsc, i); }
 }
 
 abstract class BaseDataSink : DataSink
@@ -70,7 +74,9 @@ protected:
     }
 
 public:
+    abstract void putLength(ulong l);
     abstract void putValue(in Value v);
+    abstract void putEnum(in EnumDsc dsc, ulong i);
 }
 
 
@@ -85,7 +91,10 @@ abstract class RootDataSink
 
     abstract void pushScope(Scope);
     abstract void popScope();
+
+    abstract void putLength(ulong l);
     abstract void putValue(in Value v);
+    abstract void putEnum(in EnumDsc dsc, ulong i);
 
     auto scopeGuard(Scope s)
     {
@@ -93,12 +102,11 @@ abstract class RootDataSink
         return ScopeGuard(&popScope);
     }
 
-    final void putData(V)(in V val, Ident id=Ident(null))
+    final void putData(V)(in V value, Ident ident=Ident(null))
     {
         import std : Unqual, isArray, isDynamicArray,
                      isAssociativeArray, isSomeString,
                      ElementType;
-        alias T = Unqual!V;
 
         uint getEnumIndex(E)(E e) if (is(E == enum))
         {
@@ -107,72 +115,81 @@ abstract class RootDataSink
             assert (0, "bad enum value");
         }
 
-        // see tmpIdent description
-        if (id.isNull && !tmpIdent.isNull)
+        void impl(W)(in W val, Ident id)
         {
-            id = tmpIdent.get();
-            tmpIdent.nullify();
+            alias T = Unqual!W;
+
+            // see tmpIdent description
+            if (id.isNull && !tmpIdent.isNull)
+            {
+                id = tmpIdent.get();
+                tmpIdent.nullify();
+            }
+
+            static immutable tdsc = makeTypeDsc!T;
+            pushScope(Scope(tdsc, id));
+            scope (exit) popScope();
+
+            static if (is(T == enum) && !is(T == Bool))
+            {
+                putEnum(tdsc.get!EnumDsc, getEnumIndex(val));
+            }
+            else
+            static if (isArray!T &&
+                    !isSomeString!T &&
+                    !is(Unqual!(ElementType!T) == void))
+            {
+                static if (isDynamicArray!T) putLength(val.length);
+                foreach (i, v; val) impl(v, Ident(i));
+            }
+            else
+            static if (is(T == bool))
+            {
+                putValue(Value(cast(Bool)val));
+            }
+            else
+            static if (is(typeof(Value(val))))
+            {
+                putValue(Value(val));
+            }
+            else
+            static if (isAssociativeArray!T)
+            {
+                putLength(val.length);
+                foreach (k, v; val)
+                {
+                    impl(k, AAKeyIdent);
+                    impl(v, AAValueIdent);
+                }
+            }
+            else
+            static if (isTaggedVariant!T)
+            {
+                impl(val.kind);
+                const kindIndex = getEnumIndex(val.kind);
+                val.visit!(v => impl(v, Ident(kindIndex)));
+            }
+            else
+            static if (is(T == Tuple!X, X...))
+            {
+                putLength(val.tupleof.length);
+                foreach (i, ref v; val.tupleof)
+                    impl(v, Ident(i));
+            }
+            else
+            static if (is(T == struct))
+            {
+                putLength(val.tupleof.length);
+                foreach (i, ref v; val.tupleof)
+                {
+                    enum name = __traits(identifier, val.tupleof[i]);
+                    impl(v, Ident(name));
+                }
+            }
+            else static assert(0, "unsupported type: " ~ T.stringof);
         }
 
-        static immutable tdsc = makeTypeDsc!T;
-        auto _ = scopeGuard(Scope(tdsc, id));
-
-        static if (is(T == enum) && !is(T == Bool))
-        {
-            putValue(Value(getEnumIndex(val)));
-        }
-        else
-        static if (isArray!T &&
-                  !isSomeString!T &&
-                  !is(Unqual!(ElementType!T) == void))
-        {
-            static if (isDynamicArray!T)
-                putData(cast(ulong)val.length, ArrayLengthIdent);
-            foreach (i, v; val) putData(v, Ident(i));
-        }
-        else
-        static if (is(T == bool))
-        {
-            putValue(Value(cast(Bool)val));
-        }
-        else
-        static if (is(typeof(Value(val))))
-        {
-            putValue(Value(val));
-        }
-        else
-        static if (isAssociativeArray!T)
-        {
-            putData(cast(ulong)val.length, ArrayLengthIdent);
-            foreach (k, v; val)
-            {
-                putData(k, AAKeyIdent);
-                putData(v, AAValueIdent);
-            }
-        }
-        else
-        static if (isTaggedVariant!T)
-        {
-            putData(val.kind);
-            const kindIndex = getEnumIndex(val.kind);
-            val.visit!(v => putData(v, Ident(kindIndex)));
-        }
-        else
-        static if (is(T == Tuple!X, X...))
-        {
-            foreach (i, ref v; val.tupleof)
-                putData(v, Ident(i));
-        }
-        else
-        static if (is(T == struct))
-        {
-            foreach (i, ref v; val.tupleof)
-            {
-                enum name = __traits(identifier, val.tupleof[i]);
-                putData(v, Ident(name));
-            }
-        }
-        else static assert(0, "unsupported type: " ~ T.stringof);
+        impl(value, ident);
     }
 }
 
@@ -203,6 +220,7 @@ public:
     }
 
 override:
+
     void pushScope(Scope s)
     {
         scopeStack.push(s);
@@ -217,7 +235,9 @@ override:
             sink.onScopeEmpty();
     }
 
+    void putLength(ulong l) { sink.putLength(l); }
     void putValue(in Value v) { sink.putValue(v); }
+    void putEnum(in EnumDsc dsc, ulong i) { sink.putEnum(dsc, i); }
 }
 
 version (unittest)
@@ -243,10 +263,13 @@ version (unittest)
         protected void onPushScope() { }
         protected void onPopScope() { }
         protected void onScopeEmpty() { }
+        void putLength(ulong l) { }
         void putValue(in Value v) { vals ~= v; }
+        void putEnum(in EnumDsc dsc, ulong i)
+        { vals ~= dsc.def[i].value; }
     }
 
-    enum NumEnum { one = 1, two = 2 }
+    enum NumEnum { one = 11, two = 22 }
 
     enum StrEnum { one = "ONE", two = "TWO" }
 
@@ -370,8 +393,7 @@ unittest
         assert (tss.history[0].dsc.kind == TypeDsc.Kind.enumEl);
         assert (tss.history[0].dsc.get!EnumDsc.def.length == 2);
         assert (ds.vals.length == 1);
-        assert (ds.vals[0].kind == Value.Kind.u32);
-        assert (ds.vals[0].get!uint == 0); // index of 'one'
+        assert (ds.vals[0] == Value(11));
     }
 
     {
@@ -385,8 +407,6 @@ unittest
             assert (tss.history[p].dsc.kind == TypeDsc.Kind.dArray);
             assert (tss.history[p].id == Ident("foos"));
             p++;
-                assert (tss.history[p].id == ArrayLengthIdent);
-                p++;
                 assert (tss.history[p].dsc.kind == TypeDsc.Kind.enumEl);
                 assert (tss.history[p].id == Ident(0));
                 p++;
@@ -394,9 +414,9 @@ unittest
                 assert (tss.history[p].id == Ident(1));
                 p++;
         assert (tss.history.length == p);
-        assert (ds.vals.length == 3);
+        assert (ds.vals.length == 2);
 
-        assert (ds.vals == [Value(2UL), Value(0U), Value(1U)]); // index of 'one' and 'two'
+        assert (ds.vals == [Value(11), Value(22)]);
     }
 
     {
@@ -416,8 +436,6 @@ unittest
                 assert (tss.history[p].dsc.kind == TypeDsc.Kind.dArray);
                 assert (tss.history[p].id == Ident("fs"));
                 p++;
-                    assert (tss.history[p].id == ArrayLengthIdent);
-                    p++;
                     assert (tss.history[p].dsc.kind == TypeDsc.Kind.enumEl);
                     assert (tss.history[p].id == Ident(0));
                     p++;
@@ -433,10 +451,8 @@ unittest
                 assert (tss.history[p].dsc.kind == TypeDsc.Kind.dArray);
                 assert (tss.history[p].id == Ident("fs"));
                 p++;
-                    assert (tss.history[p].id == ArrayLengthIdent);
-                    p++;
         assert (tss.history.length == p);
-        assert (ds.vals == [Value(3UL), Value(0U), Value(0U), Value(1U), Value(0UL)]);
+        assert (ds.vals == [Value("ONE"), Value("ONE"), Value("TWO")]);
     }
 
     assert (tss.empty);

@@ -20,7 +20,6 @@ const override:
             (ulong index) { formattedWrite(o, "[%d]", index); },
             (AAKey _) { o.put("key"); },
             (AAValue _) { o.put("val"); },
-            (ArrayLength _) { o.put("len"); }
         );
     }
 }
@@ -39,7 +38,6 @@ const override:
             (ulong index) { formattedWrite(o, "[%d]", index); },
             (AAKey _) { o.put(tr.get("key", "key")); },
             (AAValue _) { o.put(tr.get("val", "val")); },
-            (ArrayLength _) { o.put(tr.get("len", "len")); }
         );
     }
 }

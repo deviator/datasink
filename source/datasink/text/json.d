@@ -78,7 +78,6 @@ protected:
     string offsetStr = "  ";
 
     bool needSeparator = false;
-    bool skipValue = false;
 
     bool needIdent() const @property
     {
@@ -101,13 +100,13 @@ protected:
 
     void printValueSep()
     {
-        put(temp, ',');
+        temp.put(',');
         if (pretty) printNewLine();
     }
 
     void printIdentSep()
     {
-        put(temp, ':');
+        temp.put(':');
         if (pretty) printSpace();
     }
 
@@ -126,12 +125,6 @@ protected:
         printIdentSep();
     }
 
-    import std : Rebindable;
-
-    alias EnumMemberDef = Nullable!(Rebindable!(const(EnumDsc.MemberDsc[])));
-
-    EnumMemberDef enumMemberDef;
-
     void putScope(bool start)
     {
         const top = scopeStack.top;
@@ -149,7 +142,7 @@ protected:
         {
             if (start)
             {
-                put(temp, br[0]);
+                temp.put(br[0]);
                 if (pretty)
                 {
                     offset++;
@@ -163,13 +156,13 @@ protected:
                     offset--;
                     printNewLine();
                 }
-                put(temp, br[1]);
+                temp.put(br[1]);
             }
         }
 
         final switch (top.dsc.kind) with(top.dsc.Kind)
         {
-            case value: break;
+            case value: case enumEl: break;
             case object: case tUnion:
                 scopeBrackets(obj);
                 needIdentManip(true);
@@ -181,10 +174,6 @@ protected:
             case sArray: case dArray: case tuple:
                 scopeBrackets(arr);
                 needIdentManip(false);
-                break;
-            case enumEl:
-                if (!start) enumMemberDef.nullify; 
-                else enumMemberDef = scopeStack.top.dsc.get!EnumDsc.def;
                 break;
         }
     }
@@ -202,13 +191,11 @@ protected:
         void onPopScope()
         {
             const topid = scopeStack.top.id;
+
             if (topid.kind == Ident.Kind.aaKey)
                 printIdentSep();
             else
-            {
-                if (skipValue) skipValue = false;
-                else needSeparator = true;
-            }
+                needSeparator = true;
 
             putScope(false);
         }
@@ -216,7 +203,6 @@ protected:
         void reset()
         {
             needSeparator = false;
-            assert (enumMemberDef.isNull);
             assert (needIdentStack.empty);
         }
     }
@@ -240,23 +226,12 @@ public:
 
 override:
 
+    void putLength(ulong l) { }
+
     void putValue(in Value v)
     {
-        if (scopeStack.top.id.kind == Ident.Kind.length)
-        {
-            skipValue = true;
-            return;
-        }
-
         if (needSeparator) printValueSep();
-
-        if (enumMemberDef.isNull)
-            vfmt.formatValue(temp, scopeStack, v);
-        else
-        {
-            auto x = enumMemberDef.get[v.get!uint].name;
-            vfmt.formatValue(temp, scopeStack, Value(x));
-        }
+        vfmt.formatValue(temp, scopeStack, v);
     }
 }
 
