@@ -266,7 +266,7 @@ version (unittest)
         void putLength(ulong l) { }
         void putValue(in Value v) { vals ~= v; }
         void putEnum(in EnumDsc dsc, ulong i)
-        { vals ~= dsc.def[i].value; }
+        { vals ~= dsc.members[i].value; }
     }
 
     enum NumEnum { one = 11, two = 22 }
@@ -391,7 +391,7 @@ unittest
         brds.putData(NumEnum.one);
         assert (tss.history.length == 1);
         assert (tss.history[0].dsc.kind == TypeDsc.Kind.enumEl);
-        assert (tss.history[0].dsc.get!EnumDsc.def.length == 2);
+        assert (tss.history[0].dsc.get!EnumDsc.members.length == 2);
         assert (ds.vals.length == 1);
         assert (ds.vals[0] == Value(11));
     }

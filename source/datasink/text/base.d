@@ -43,7 +43,7 @@ public:
 override:
     void putEnum(in EnumDsc dsc, ulong i)
     {
-        auto x = dsc.def[i].name;
+        auto x = dsc.members[i].name;
         putValue(Value(x));
     }
 }

@@ -5,12 +5,12 @@ import std.typecons : Tuple;
 
 struct EnumDsc
 {
-    struct MemberDsc
+    struct Member
     {
         string name;
         Value value;
     }
-    MemberDsc[] def;
+    Member[] members;
 }
 
 struct ObjectDsc { ulong length; }
@@ -63,7 +63,7 @@ template makeTypeDsc(T)
             
             return TypeDsc(EnumDsc(
                 [EnumMembers!T]
-                    .map!(a => EnumDsc.MemberDsc(a.to!string, Value(cast(X)a)))
+                    .map!(a => EnumDsc.Member(a.to!string, Value(cast(X)a)))
                     .array
             ));
         }
@@ -151,9 +151,9 @@ unittest
 
     auto fooDscEnum = fooDsc.get!EnumDsc;
 
-    assert (fooDscEnum.def.length == 2);
-    assert (fooDscEnum.def[0] == EnumDsc.MemberDsc("one", Value("ONE")));
-    assert (fooDscEnum.def[1] == EnumDsc.MemberDsc("two", Value("TWO")));
+    assert (fooDscEnum.members.length == 2);
+    assert (fooDscEnum.members[0] == EnumDsc.Member("one", Value("ONE")));
+    assert (fooDscEnum.members[1] == EnumDsc.Member("two", Value("TWO")));
 
     enum arr1Dsc = makeTypeDsc!(typeof(Bar.arr1));
     static assert (arr1Dsc._is!DArrayDsc);
