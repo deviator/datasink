@@ -16,6 +16,7 @@ public:
     void putLength(ulong l) { }
     void putValue(in Value v) { }
     void putEnum(in EnumDsc dsc, ulong i) { }
+    void putKind(in EnumDsc dsc, ulong i) { }
 }
 
 class ListDataSink : DataSink
@@ -38,6 +39,8 @@ public:
     void putValue(in Value v) { foreach (s; sinks) s.putValue(v); }
     void putEnum(in EnumDsc dsc, ulong i)
     { foreach (s; sinks) s.putEnum(dsc, i); }
+    void putKind(in EnumDsc dsc, ulong i)
+    { foreach (s; sinks) s.putKind(dsc, i); }
 }
 
 class EnableDataSink : DataSink
@@ -65,4 +68,6 @@ override:
     void putValue(in Value v) { if (enable.get()) sink.putValue(v); }
     void putEnum(in EnumDsc dsc, ulong i)
     { if (enable.get()) sink.putEnum(dsc, i); }
+    void putKind(in EnumDsc dsc, ulong i)
+    { if (enable.get()) sink.putKind(dsc, i); }
 }

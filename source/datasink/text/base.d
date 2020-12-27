@@ -46,6 +46,8 @@ override:
         auto x = dsc.members[i].name;
         putValue(Value(x));
     }
+
+    void putKind(in EnumDsc dsc, ulong i) { }
 }
 
 class ExampleTextDataSink : BaseTextDataSink
@@ -92,8 +94,8 @@ protected:
 
         final switch (top.dsc.kind) with(top.dsc.Kind)
         {
-            case value: break;
-            case object: case tUnion:
+            case value: case enumEl: case tUnion: case variant: break;
+            case object:
                 put(temp, obj);
                 onStartPushNeedIdent(true);
                 break;
@@ -105,7 +107,6 @@ protected:
                 put(temp, arr);
                 onStartPushNeedIdent(false);
                 break;
-            case enumEl: break;
         }
     }
 

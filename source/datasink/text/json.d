@@ -163,7 +163,10 @@ protected:
         final switch (top.dsc.kind) with(top.dsc.Kind)
         {
             case value: case enumEl: break;
-            case object: case tUnion:
+            case tUnion: case variant:
+                needIdentManip(false);
+                break;
+            case object:
                 scopeBrackets(obj);
                 needIdentManip(true);
                 break;
@@ -371,25 +374,81 @@ version (unittest)
 unittest
 {
     auto ts = new ArrayTextSink;
-
     auto jds = new JsonDataSink(ts, true);
-
     auto brds = new BaseRootDataSink(jds);
-
-    import std.stdio;
-
     brds.putData(Foo(10, "hello"));
     assert (ts[] == "{\n  \"first\": 10,\n  \"second\": \"hello\"\n}");
     ts.clear();
-
     auto bzz = baz1;
-
     brds.putData(bzz);
-
     assert(ts[] == baz1_js_pretty);
+}
 
+unittest
+{
+    auto ts = new ArrayTextSink;
+    auto brds = new BaseRootDataSink(new JsonDataSink(ts));
+    static struct TT { string a, b; }
+    static struct NFoo
+    {
+        Nullable!(int, TT) first;
+        Nullable!string second;
+        Variant!(int, string) third;
+
+        this(F,S,T)(in F f, in S s, in T t)
+        {
+            first = typeof(first)(f);
+            second = typeof(second)(s);
+            third = typeof(third)(t);
+        }
+    }
+    brds.putData(NFoo(10, "hello", 5));
+    assert (ts[] == `{"first":10,"second":"hello","third":5}`);
     ts.clear();
+    brds.putData(NFoo(null, null, "okda"));
+    assert (ts[] == `{"first":null,"second":null,"third":"okda"}`);
+    ts.clear();
+    brds.putData(NFoo(TT("op", "pa"), null, 1));
+    assert (ts[] == `{"first":{"a":"op","b":"pa"},"second":null,"third":1}`);
+}
 
+unittest
+{
+    auto ts = new ArrayTextSink;
+    auto brds = new BaseRootDataSink(new JsonDataSink(ts));
+    static struct NFoo
+    {
+        Nullable!(int, int[3]) volt;
+        this(typeof(null) n) { }
+        this(int s) { volt = typeof(volt)(s); }
+        this(int[3] t) { volt = typeof(volt)(t); }
+    }
+    brds.putData(NFoo(10));
+    assert (ts[] == `{"volt":10}`);
+    ts.clear();
+    brds.putData(NFoo(null));
+    assert (ts[] == `{"volt":null}`);
+    ts.clear();
+    brds.putData(NFoo([1,2,3]));
+    assert (ts[] == `{"volt":[1,2,3]}`);
+}
+
+unittest
+{
+    auto ts = new ArrayTextSink;
+    auto brds = new BaseRootDataSink(new JsonDataSink(ts));
+    static struct NFoo { Value val; }
+    brds.putData(NFoo(Value(10)));
+    assert (ts[] == `{"val":10}`);
+    ts.clear();
+    brds.putData(NFoo(Value(null)));
+    assert (ts[] == `{"val":null}`);
+    ts.clear();
+    brds.putData(NFoo(Value("hello")));
+    assert (ts[] == `{"val":"hello"}`);
+    ts.clear();
+    brds.putData(NFoo(Value(3.14)));
+    assert (ts[] == `{"val":3.140000e+00}`);
 }
 
 unittest

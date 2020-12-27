@@ -17,9 +17,15 @@ struct EnumVal
     ulong index;
 }
 
+struct KindVal
+{
+    EnumDsc dsc;
+    ulong index;
+}
+
 alias Msg = TaggedVariant!(
-    ["popScope",   "pushScope", "value", "length", "enumVal"],
-      int,          Scope,       Value,   Length,   EnumVal
+    ["popScope",   "pushScope", "value", "length", "enumVal", "kindVal"],
+      int,          Scope,       Value,   Length,   EnumVal,   KindVal
 );
 
 class BinSenderRDS : RootDataSink
@@ -72,6 +78,7 @@ override:
     void putLength(ulong l) { addMsg(Msg(Length(l))); }
     void putValue(in Value v) { addMsg(Msg(v)); }
     void putEnum(in EnumDsc dsc, ulong i) { addMsg(Msg(EnumVal(EnumDsc(dsc.members.dup), i))); }
+    void putKind(in EnumDsc dsc, ulong i) { addMsg(Msg(KindVal(EnumDsc(dsc.members.dup), i))); }
 }
 
 class BinReader
@@ -91,7 +98,8 @@ class BinReader
                 (Scope s) { rds.pushScope(s); },
                 (Value v) { rds.putValue(v); },
                 (Length l) { rds.putLength(l); },
-                (EnumVal v) { rds.putEnum(v.dsc, v.index); }
+                (EnumVal v) { rds.putEnum(v.dsc, v.index); },
+                (KindVal v) { rds.putKind(v.dsc, v.index); },
             );
     }
 }

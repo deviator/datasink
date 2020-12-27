@@ -61,9 +61,6 @@ override:
 
         valueTmp.clear();
 
-        // switch-case with label don't allow declare vairable in case block
-        // error like goto skip variable declaration
-        // LDC - the LLVM D compiler (1.22.0)
         if (v.kind == K.bit)
         {
             const bv = cast(bool)v.get!Bool;
@@ -71,13 +68,13 @@ override:
                 idTranslator.translateId(valueTmp, ss, Ident(bv ? "true" : "false"));
             else formattedWrite(valueTmp, "%s", bv);
         }
-        else
-        static foreach (kind; EnumMembers!K)
+        else if (v.kind == K.nil)
         {
-            static if (kind != K.bit) // special case above
-                if (v.kind == kind)
-                    formattedWrite(valueTmp, "%s", v.get!kind);
+            if (idTranslator !is null)
+                idTranslator.translateId(valueTmp, ss, Ident("null"));
+            else valueTmp.put("null");
         }
+        else v.visit!(x => formattedWrite(valueTmp, "%s", x));
         putEscapeString(o, valueTmp[]);
     }
 }
@@ -267,4 +264,69 @@ unittest
 
     assert (ts[] == `"x->один раз","x->два,раза->ok"`~"\r\n" ~
                     "да,10\r\n");
+}
+
+unittest
+{
+    auto ts = new ArrayTextSink;
+    auto brds = new BaseRootDataSink(new CSVDataSink(ts, null, null));
+    static struct TT { string a, b; }
+    static struct NFoo
+    {
+        Nullable!(int, TT) first;
+        Nullable!string second;
+        Variant!(int, string) third;
+
+        this(F,S,T)(in F f, in S s, in T t)
+        {
+            first = typeof(first)(f);
+            second = typeof(second)(s);
+            third = typeof(third)(t);
+        }
+    }
+    brds.putData(NFoo(10, "hello", 5));
+    assert (ts[] == "first.[1],second,third\r\n10,hello,5\r\n");
+    ts.clear();
+    brds.putData(NFoo(null, null, "okda"));
+    assert (ts[] == "first.[0],second,third\r\nnull,null,okda\r\n");
+    ts.clear();
+    brds.putData(NFoo(TT("op", "pa"), null, 1));
+    assert (ts[] == "first.[2].a,first.[2].b,second,third\r\nop,pa,null,1\r\n");
+}
+
+unittest
+{
+    auto ts = new ArrayTextSink;
+    auto brds = new BaseRootDataSink(new CSVDataSink(ts, null, null));
+    static struct NFoo
+    {
+        Nullable!(int, int[3]) volt;
+        this(typeof(null) n) { }
+        this(int s) { volt = typeof(volt)(s); }
+        this(int[3] t) { volt = typeof(volt)(t); }
+    }
+    brds.putData(NFoo(10));
+    assert (ts[] == "volt.[1]\r\n10\r\n");
+    ts.clear();
+    brds.putData(NFoo(null));
+    assert (ts[] == "volt.[0]\r\nnull\r\n");
+    ts.clear();
+    brds.putData(NFoo([1,2,3]));
+    assert (ts[] == "volt.[2].[0],volt.[2].[1],volt.[2].[2]\r\n1,2,3\r\n");
+}
+
+unittest
+{
+    auto ts = new ArrayTextSink;
+    auto brds = new BaseRootDataSink(new CSVDataSink(ts, null, null));
+    static struct NFoo { Value val; }
+    brds.putData(NFoo(Value(10)));
+    assert (ts[] == "val\r\n10\r\n");
+    brds.putData(NFoo(Value(null)));
+    assert (ts[] == "val\r\n10\r\nnull\r\n");
+    brds.putData(NFoo(Value("hello")));
+    assert (ts[] == "val\r\n10\r\nnull\r\nhello\r\n");
+    ts.clear();
+    brds.putData(NFoo(Value(3.14)));
+    assert (ts[] == "3.14\r\n");
 }

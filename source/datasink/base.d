@@ -37,6 +37,7 @@ public:
     void putLength(ulong ln);
     void putValue(in Value v);
     void putEnum(in EnumDsc dsc, ulong i);
+    void putKind(in EnumDsc dsc, ulong i);
 }
 
 version (unittest)
@@ -52,6 +53,7 @@ class PublicDataSink
     void putLength(ulong l) { sink.putLength(l); }
     void putValue(in Value v) { sink.putValue(v); }
     void putEnum(in EnumDsc dsc, ulong i) { sink.putEnum(dsc, i); }
+    void putKind(in EnumDsc dsc, ulong i) { sink.putKind(dsc, i); }
 }
 
 abstract class BaseDataSink : DataSink
@@ -77,6 +79,7 @@ public:
     abstract void putLength(ulong l);
     abstract void putValue(in Value v);
     abstract void putEnum(in EnumDsc dsc, ulong i);
+    abstract void putKind(in EnumDsc dsc, ulong i);
 }
 
 
@@ -95,6 +98,7 @@ abstract class RootDataSink
     abstract void putLength(ulong l);
     abstract void putValue(in Value v);
     abstract void putEnum(in EnumDsc dsc, ulong i);
+    abstract void putKind(in EnumDsc dsc, ulong i);
 
     auto scopeGuard(Scope s)
     {
@@ -165,9 +169,16 @@ abstract class RootDataSink
             else
             static if (isTaggedVariant!T)
             {
-                impl(val.kind);
+                static immutable kdsc = makeTypeDsc!(val.Kind);
                 const kindIndex = getEnumIndex(val.kind);
+                putKind(kdsc.get!EnumDsc, kindIndex);
                 val.visit!(v => impl(v, Ident(kindIndex)));
+            }
+            else
+            static if (isVariant!T)
+            {
+                const ki = val.visit!(v => v.getValueKindIndex!T);
+                val.visit!(v => impl(v, Ident(ki)));
             }
             else
             static if (is(T == Tuple!X, X...))
@@ -238,6 +249,7 @@ override:
     void putLength(ulong l) { sink.putLength(l); }
     void putValue(in Value v) { sink.putValue(v); }
     void putEnum(in EnumDsc dsc, ulong i) { sink.putEnum(dsc, i); }
+    void putKind(in EnumDsc dsc, ulong i) { sink.putKind(dsc, i); }
 }
 
 version (unittest)
@@ -267,6 +279,7 @@ version (unittest)
         void putValue(in Value v) { vals ~= v; }
         void putEnum(in EnumDsc dsc, ulong i)
         { vals ~= dsc.members[i].value; }
+        void putKind(in EnumDsc dsc, ulong i) { }
     }
 
     enum NumEnum { one = 11, two = 22 }

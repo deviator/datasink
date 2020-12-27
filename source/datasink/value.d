@@ -28,25 +28,20 @@ alias Value = TaggedVariant!(
     double,
 );
 
-template getKindIndex(X, T) if (isTaggedVariant!T)
-{
-    import std.meta : staticIndexOf;
-    enum r = staticIndexOf!(X, Value.AllowedTypes);
-    enum getKindIndex = r;
-}
+import std.meta : staticIndexOf;
+import std.traits : EnumMembers;
+
+enum getKindIndex(X,T) = staticIndexOf!(X, T.AllowedTypes);
+
+size_t getValueKindIndex(T, X)(in X val) if (isVariant!T)
+{ return getKindIndex!(X,T); }
 
 template getKindByIndex(ptrdiff_t index, T)
     if (isTaggedVariant!T && index >= 0)
-{
-    import std.traits : EnumMembers;
-    enum r = EnumMembers!(T.Kind)[index];
-    enum getKindByIndex = r;
-}
+{ enum getKindByIndex = EnumMembers!(T.Kind)[index]; }
 
 template getKindByType(X, T) if (isTaggedVariant!T)
-{
-    enum getKindByType = getKindByIndex!(getKindIndex!(X, T), T);
-}
+{ enum getKindByType = getKindByIndex!(getKindIndex!(X, T), T); }
 
 template TypeByKind(T, alias kind)
     if (isTaggedVariant!T && is(typeof(kind) == T.Kind))

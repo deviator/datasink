@@ -19,10 +19,11 @@ struct AArrayDsc { }
 struct DArrayDsc { }
 struct SArrayDsc { ulong length; }
 struct TUnionDsc { }
+struct VariantDsc { ulong length; }
 
 alias TypeDsc = TaggedVariant!(
-    ["value", "object", "tuple",  "dArray", "sArray",  "aArray",  "tUnion",  "enumEl"],
-    Value.Kind, ObjectDsc, TupleDsc, DArrayDsc, SArrayDsc, AArrayDsc, TUnionDsc, EnumDsc,
+    ["value", "object", "tuple",  "dArray", "sArray",  "aArray",  "tUnion", "variant", "enumEl"],
+    Value.Kind, ObjectDsc, TupleDsc, DArrayDsc, SArrayDsc, AArrayDsc, TUnionDsc, VariantDsc, EnumDsc,
 );
 
 template makeTypeDsc(T)
@@ -91,6 +92,11 @@ template makeTypeDsc(T)
         static if (isTaggedVariant!T)
         {
             return TypeDsc(TUnionDsc.init);
+        }
+        else
+        static if (isVariant!T)
+        {
+            return TypeDsc(VariantDsc(T.AllowedTypes.length));
         }
         else
         static if (is(T == Tuple!X, X...))
